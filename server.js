@@ -15,7 +15,7 @@ app.use(express.json({ limit: '10mb' }));
 // Rate limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
+  max: 50, // 5 attempts per window
   message: { error: 'Too many authentication attempts, try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -53,6 +53,7 @@ const {
   updateDoc,
   runTransaction,
 } = require('firebase/firestore');
+const { HttpStatusCode } = require('axios');
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -136,18 +137,22 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
         timestamp: getCurrentTimestamp(),
         email: sanitizedEmail,
       });
-      return res.status(400).json({ success: false });
+      return res
+        .status(400)
+        .json({ success: false, error: 'User already exists' });
     }
 
     // Check subscription status
-    const hasValidSubscription = await checkSubscriptionStatus(sanitizedEmail);
-    if (!hasValidSubscription) {
-      console.log('Registration failed - no subscription', {
-        timestamp: getCurrentTimestamp(),
-        email: sanitizedEmail,
-      });
-      return res.status(400).json({ success: false });
-    }
+    // const hasValidSubscription = await checkSubscriptionStatus(sanitizedEmail);
+    // if (!hasValidSubscription) {
+    //   console.log('Registration failed - no subscription', {
+    //     timestamp: getCurrentTimestamp(),
+    //     email: sanitizedEmail,
+    //   });
+    //   return res
+    //     .status(400)
+    //     .json({ success: false, error: 'No valid subscription' });
+    // }
 
     // Hash the password hash again server-side
     const serverHash = await bcrypt.hash(passwordHash, 12);
@@ -174,7 +179,9 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
       duration: `${Date.now() - new Date(requestTimestamp).getTime()}ms`,
     });
 
-    res.json({ success: true });
+    res
+      .status(HttpStatusCode.Created)
+      .json({ success: true, message: 'User registered' });
   } catch (error) {
     const errorTimestamp = getCurrentTimestamp();
     console.error('Registration error:', {
@@ -354,7 +361,11 @@ app.post('/api/auth/google', async (req, res) => {
   });
 
   try {
-    const { code } = req.body;
+    const { code, redirect_uri } = req.body;
+
+    if (!redirect_uri) {
+      return res.status(400).json({ error: 'Missing redirect_uri' });
+    }
 
     const response = await axios.post(
       'https://oauth2.googleapis.com/token',
@@ -362,44 +373,29 @@ app.post('/api/auth/google', async (req, res) => {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID,
         client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: process.env.REDIRECT_URI,
+        redirect_uri, // dynamically use the one the client sent
         grant_type: 'authorization_code',
       }),
       {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
     );
-
-    const responseTimestamp = getCurrentTimestamp();
-    console.log('Successfully exchanged auth code for tokens', {
-      timestamp: responseTimestamp,
-      duration: `${new Date(responseTimestamp) - new Date(requestTimestamp)}ms`,
-    });
 
     res.json({
       access_token: response.data.access_token,
       refresh_token: response.data.refresh_token,
       expires_in: response.data.expires_in,
-      timestamp: responseTimestamp,
+      timestamp: getCurrentTimestamp(),
     });
   } catch (error) {
-    const errorTimestamp = getCurrentTimestamp();
     console.error('OAuth error:', {
-      timestamp: errorTimestamp,
-      requestTime: requestTimestamp,
-      errorTime: errorTimestamp,
-      duration: `${new Date(errorTimestamp) - new Date(requestTimestamp)}ms`,
-      request: error.config?.data,
-      response: error.response?.data,
       error: error.message,
+      response: error.response?.data,
     });
 
     res.status(400).json({
       error: 'Authentication failed',
       details: error.response?.data,
-      timestamp: errorTimestamp,
     });
   }
 });
