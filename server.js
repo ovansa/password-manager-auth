@@ -65,10 +65,24 @@ const firebaseConfig = {
   measurementId: process.env.FIREBASE_MEASUREMENT_ID,
 };
 
+// Validate required environment variables on startup
+const requiredEnvVars = [
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_APP_ID',
+];
+const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
+if (missingEnvVars.length > 0) {
+  console.error('FATAL: Missing required environment variables:', missingEnvVars.join(', '));
+  console.error('Set these in your Render dashboard under Environment > Environment Variables');
+  process.exit(1);
+}
+
 // Initialize Firebase
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
-console.log('Firebase initialized successfully');
+console.log('Firebase initialized successfully', { projectId: process.env.FIREBASE_PROJECT_ID });
 
 // Helper functions
 const getCurrentTimestamp = () => new Date().toISOString();
@@ -326,7 +340,7 @@ app.get('/api/auth/kdf-params', async (req, res) => {
       type: user.kdfType,
     });
   } catch (error) {
-    console.error('KDF params error:', error.message);
+    console.error('KDF params error:', { message: error.message, code: error.code });
     res.status(500).json({ error: 'Failed to get parameters' });
   }
 });
