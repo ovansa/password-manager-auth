@@ -134,13 +134,14 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
     const userDoc = await userRef.get();
 
     if (userDoc.exists) {
-      console.log('Registration failed - user exists', {
+      // Log internally but never confirm email existence to the caller
+      console.log('Registration declined - account exists', {
         timestamp: getCurrentTimestamp(),
         email: sanitizedEmail,
       });
       return res
         .status(400)
-        .json({ success: false, error: 'User already exists' });
+        .json({ success: false, error: 'Registration unsuccessful' });
     }
 
     // Check subscription status
@@ -474,8 +475,8 @@ async function checkSubscriptionStatus(email) {
   }
 }
 
-// Error handling middleware
-app.use((error, req, res, next) => {
+// Error handling middleware (4 params required for Express to treat as error handler)
+app.use((error, req, res, _next) => {
   console.error('Unhandled error:', {
     timestamp: getCurrentTimestamp(),
     error: error.message,
@@ -491,7 +492,7 @@ app.use((error, req, res, next) => {
 });
 
 // 404 handler
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
     timestamp: getCurrentTimestamp(),
