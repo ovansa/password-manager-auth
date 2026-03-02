@@ -42,35 +42,14 @@ app.use(
   })
 );
 
-// Initialize Firebase with the provided configuration
-const { initializeApp } = require('firebase/app');
-const {
-  getFirestore,
-  collection,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  runTransaction,
-} = require('firebase/firestore');
+const admin = require('firebase-admin');
 const { HttpStatusCode } = require('axios');
-
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-  measurementId: process.env.FIREBASE_MEASUREMENT_ID,
-};
 
 // Validate required environment variables on startup
 const requiredEnvVars = [
-  'FIREBASE_API_KEY',
-  'FIREBASE_AUTH_DOMAIN',
   'FIREBASE_PROJECT_ID',
-  'FIREBASE_APP_ID',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
 ];
 const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingEnvVars.length > 0) {
@@ -79,10 +58,18 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
-// Initialize Firebase
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
-console.log('Firebase initialized successfully', { projectId: process.env.FIREBASE_PROJECT_ID });
+// Initialize Firebase Admin SDK (bypasses Firestore security rules — correct for server)
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    // Render stores \n as literal \\n in env vars — convert back
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  }),
+});
+
+const db = admin.firestore();
+console.log('Firebase Admin initialized successfully', { projectId: process.env.FIREBASE_PROJECT_ID });
 
 // Helper functions
 const getCurrentTimestamp = () => new Date().toISOString();
@@ -143,10 +130,10 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
     }
 
     // Check if user already exists
-    const userRef = doc(db, 'users', sanitizedEmail);
-    const userDoc = await getDoc(userRef);
+    const userRef = db.collection('users').doc(sanitizedEmail);
+    const userDoc = await userRef.get();
 
-    if (userDoc.exists()) {
+    if (userDoc.exists) {
       console.log('Registration failed - user exists', {
         timestamp: getCurrentTimestamp(),
         email: sanitizedEmail,
@@ -185,7 +172,7 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
       lockedUntil: null,
     };
 
-    await setDoc(userRef, userData);
+    await userRef.set(userData);
 
     console.log('User registered successfully', {
       timestamp: getCurrentTimestamp(),
@@ -230,10 +217,10 @@ app.post('/api/auth/login', csrfProtection, async (req, res) => {
     }
 
     const sanitizedEmail = sanitizeEmail(email);
-    const userRef = doc(db, 'users', sanitizedEmail);
-    const userDoc = await getDoc(userRef);
+    const userRef = db.collection('users').doc(sanitizedEmail);
+    const userDoc = await userRef.get();
 
-    if (!userDoc.exists()) {
+    if (!userDoc.exists) {
       // Consistent timing to prevent user enumeration
       await bcrypt.hash('dummy_password', 12);
       return res.status(401).json({
@@ -265,7 +252,7 @@ app.post('/api/auth/login', csrfProtection, async (req, res) => {
         updates.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
       }
 
-      await updateDoc(userRef, updates);
+      await userRef.update(updates);
 
       return res.status(401).json({
         success: false,
@@ -274,7 +261,7 @@ app.post('/api/auth/login', csrfProtection, async (req, res) => {
     }
 
     // Successful login - reset attempts and update last login
-    await updateDoc(userRef, {
+    await userRef.update({
       loginAttempts: 0,
       lockedUntil: null,
       lastLogin: new Date(),
@@ -324,9 +311,9 @@ app.get('/api/auth/kdf-params', async (req, res) => {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    const userDoc = await getDoc(doc(db, 'users', sanitizedEmail));
+    const userDoc = await db.collection('users').doc(sanitizedEmail).get();
 
-    if (!userDoc.exists()) {
+    if (!userDoc.exists) {
       // Return default parameters to prevent user enumeration
       return res.json({
         iterations: 310000,
@@ -474,8 +461,8 @@ async function checkSubscriptionStatus(email) {
     }
 
     // Check if user exists and has subscription
-    const userDoc = await getDoc(doc(db, 'users', email));
-    if (userDoc.exists()) {
+    const userDoc = await db.collection('users').doc(email).get();
+    if (userDoc.exists) {
       const userData = userDoc.data();
       return userData.isSubscribed === true;
     }
