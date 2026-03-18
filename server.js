@@ -32,12 +32,30 @@ app.use('/api/auth', authLimiter);
 app.use(generalLimiter);
 
 // CORS configuration
+// Browser extensions use chrome-extension:// or moz-extension:// origins.
+// We allow any extension origin since the extension ID is unpredictable across
+// installs, and the real auth protection comes from CSRF headers + bcrypt, not CORS.
+const allowedOrigins = [
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
 app.use(
   cors({
-    origin:
-      process.env.NODE_ENV === 'production'
-        ? [process.env.FRONTEND_URL]
-        : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: (origin, callback) => {
+      // Allow extension origins and requests with no origin (e.g. server-to-server)
+      if (
+        !origin ||
+        origin.startsWith('chrome-extension://') ||
+        origin.startsWith('moz-extension://') ||
+        allowedOrigins.includes(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
     credentials: true,
   })
 );
