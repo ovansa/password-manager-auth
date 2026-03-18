@@ -370,6 +370,65 @@ app.post('/api/subscription/check-eligibility', async (req, res) => {
   }
 });
 
+// ============= GOOGLE OAUTH RELAY =============
+// In-memory store for auth codes relayed from Google (keyed by state token).
+// Each entry expires after 5 minutes. This lets any browser/extension origin
+// complete the OAuth flow via a single registered redirect URI on this server.
+const pendingAuthCodes = new Map(); // state → { code, expiry }
+
+const RELAY_REDIRECT_URI = `${process.env.SERVER_URL || 'https://password-manager-auth.onrender.com'}/api/auth/google/callback`;
+
+// Route: OAuth callback — Google redirects here after user consent.
+// Stores the code keyed by state, then redirects back to the extension.
+app.get('/api/auth/google/callback', (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error || !code || !state) {
+    return res.status(400).send(`
+      <html><body>
+        <p>Authentication failed: ${error || 'Missing parameters'}.</p>
+        <p>You can close this tab.</p>
+      </body></html>
+    `);
+  }
+
+  // Store code for 5 minutes
+  pendingAuthCodes.set(state, { code, expiry: Date.now() + 5 * 60 * 1000 });
+
+  // Clean up expired entries
+  for (const [k, v] of pendingAuthCodes) {
+    if (v.expiry < Date.now()) pendingAuthCodes.delete(k);
+  }
+
+  res.send(`
+    <html><body>
+      <p>Authentication successful! You can close this tab and return to the extension.</p>
+      <script>window.close();</script>
+    </body></html>
+  `);
+});
+
+// Route: Extension polls this to retrieve its auth code by state token.
+app.get('/api/auth/google/code', (req, res) => {
+  const { state } = req.query;
+  if (!state) return res.status(400).json({ error: 'Missing state' });
+
+  const entry = pendingAuthCodes.get(state);
+  if (!entry) return res.status(404).json({ pending: true });
+  if (entry.expiry < Date.now()) {
+    pendingAuthCodes.delete(state);
+    return res.status(410).json({ error: 'Code expired' });
+  }
+
+  pendingAuthCodes.delete(state); // one-time use
+  res.json({ code: entry.code });
+});
+
+// Route: Returns the relay redirect URI so the extension doesn't need to hardcode it.
+app.get('/api/auth/google/redirect-uri', (_req, res) => {
+  res.json({ redirect_uri: RELAY_REDIRECT_URI });
+});
+
 // ============= EXISTING GOOGLE OAUTH ENDPOINTS =============
 
 // Route: Exchange auth code for tokens
