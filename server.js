@@ -12,6 +12,32 @@ const app = express();
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
+// CORS must run before rate limiters so that 429 responses still include
+// Access-Control-Allow-Origin and are not blocked by the browser.
+const allowedOrigins = [
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        origin.startsWith('chrome-extension://') ||
+        origin.startsWith('moz-extension://') ||
+        allowedOrigins.includes(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
+    credentials: true,
+  })
+);
+
 // ── Rate limiting ──────────────────────────────────────────────────────────
 // Tightest limits on the highest-risk endpoints; broader limits for everything
 // else. All limiters key by IP. standardHeaders returns RateLimit-* headers
@@ -72,37 +98,12 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply general limiter globally first, then tighter per-route limiters below.
-app.use(generalLimiter);
+// Apply general limiter globally, excluding the OAuth relay poll route which has its own limiter.
+app.use((req, res, next) => {
+  if (req.path === '/api/auth/google/code') return next();
+  generalLimiter(req, res, next);
+});
 
-// CORS configuration
-// Browser extensions use chrome-extension:// or moz-extension:// origins.
-// We allow any extension origin since the extension ID is unpredictable across
-// installs, and the real auth protection comes from CSRF headers + bcrypt, not CORS.
-const allowedOrigins = [
-  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-];
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow extension origins and requests with no origin (e.g. server-to-server)
-      if (
-        !origin ||
-        origin.startsWith('chrome-extension://') ||
-        origin.startsWith('moz-extension://') ||
-        allowedOrigins.includes(origin)
-      ) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS: origin ${origin} not allowed`));
-      }
-    },
-    credentials: true,
-  })
-);
 
 const admin = require('firebase-admin');
 const { HttpStatusCode } = require('axios');
