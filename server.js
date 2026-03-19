@@ -12,23 +12,67 @@ const app = express();
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 5 attempts per window
-  message: { error: 'Too many authentication attempts, try again later' },
+// ── Rate limiting ──────────────────────────────────────────────────────────
+// Tightest limits on the highest-risk endpoints; broader limits for everything
+// else. All limiters key by IP. standardHeaders returns RateLimit-* headers
+// (RFC 6585); legacyHeaders disables the older X-RateLimit-* set.
+
+// Login: 10 attempts per 15 min per IP. Brute-force at the transport level.
+// The per-account lockout inside the handler is a second, independent layer.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // only count failures toward the limit
+});
+
+// Registration: 5 new accounts per hour per IP.
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many registration attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
+// KDF params: 20 lookups per 15 min per IP (used just before login).
+const kdfLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Token exchange / refresh: 20 per 15 min per IP.
+const tokenLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many token requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// OAuth relay polling: 60 per 15 min per IP (extension polls for the code).
+const oauthRelayLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General catch-all: 100 per 15 min per IP for any other routes.
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-app.use('/api/auth', authLimiter);
+// Apply general limiter globally first, then tighter per-route limiters below.
 app.use(generalLimiter);
 
 // CORS configuration
@@ -113,7 +157,7 @@ const csrfProtection = (req, res, next) => {
 // ============= AUTH ENDPOINTS =============
 
 // Route: Register new user
-app.post('/api/auth/register', csrfProtection, async (req, res) => {
+app.post('/api/auth/register', registerLimiter, csrfProtection, async (req, res) => {
   const requestTimestamp = getCurrentTimestamp();
   console.log('User registration attempt', {
     timestamp: requestTimestamp,
@@ -218,7 +262,7 @@ app.post('/api/auth/register', csrfProtection, async (req, res) => {
 });
 
 // Route: User login
-app.post('/api/auth/login', csrfProtection, async (req, res) => {
+app.post('/api/auth/login', loginLimiter, csrfProtection, async (req, res) => {
   const requestTimestamp = getCurrentTimestamp();
   console.log('Login attempt', {
     timestamp: requestTimestamp,
@@ -317,7 +361,7 @@ app.post('/api/auth/login', csrfProtection, async (req, res) => {
 });
 
 // Route: Get KDF parameters for a user
-app.get('/api/auth/kdf-params', async (req, res) => {
+app.get('/api/auth/kdf-params', kdfLimiter, async (req, res) => {
   try {
     const { email } = req.query;
 
@@ -376,7 +420,7 @@ app.post('/api/subscription/check-eligibility', async (req, res) => {
 // complete the OAuth flow via a single registered redirect URI on this server.
 const pendingAuthCodes = new Map(); // state → { code, expiry }
 
-const RELAY_REDIRECT_URI = `${process.env.SERVER_URL || 'https://password-manager-auth.onrender.com'}/api/auth/google/callback`;
+const RELAY_REDIRECT_URI = `${process.env.SERVER_URL || 'https://password-manager-auth-production.up.railway.app'}/api/auth/google/callback`;
 
 // Route: OAuth callback — Google redirects here after user consent.
 // Stores the code keyed by state, then redirects back to the extension.
@@ -409,7 +453,7 @@ app.get('/api/auth/google/callback', (req, res) => {
 });
 
 // Route: Extension polls this to retrieve its auth code by state token.
-app.get('/api/auth/google/code', (req, res) => {
+app.get('/api/auth/google/code', oauthRelayLimiter, (req, res) => {
   const { state } = req.query;
   if (!state) return res.status(400).json({ error: 'Missing state' });
 
@@ -432,7 +476,7 @@ app.get('/api/auth/google/redirect-uri', (_req, res) => {
 // ============= EXISTING GOOGLE OAUTH ENDPOINTS =============
 
 // Route: Exchange auth code for tokens
-app.post('/api/auth/google', async (req, res) => {
+app.post('/api/auth/google', tokenLimiter, async (req, res) => {
   const requestTimestamp = getCurrentTimestamp();
   console.log('Received request to exchange auth code for tokens', {
     timestamp: requestTimestamp,
@@ -480,7 +524,7 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 // Route: Refresh access token
-app.post('/api/auth/refresh', async (req, res) => {
+app.post('/api/auth/refresh', tokenLimiter, async (req, res) => {
   const requestTimestamp = getCurrentTimestamp();
   console.log('Received refresh token request', {
     timestamp: requestTimestamp,
