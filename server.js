@@ -485,21 +485,27 @@ app.post('/api/auth/google', tokenLimiter, async (req, res) => {
   });
 
   try {
-    const { code, redirect_uri } = req.body;
+    const { code, redirect_uri, code_verifier } = req.body;
 
     if (!redirect_uri) {
       return res.status(400).json({ error: 'Missing redirect_uri' });
     }
+    if (!code_verifier) {
+      return res.status(400).json({ error: 'Missing code_verifier' });
+    }
+
+    const params = {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri,
+      grant_type: 'authorization_code',
+      code_verifier,
+    };
 
     const response = await axios.post(
       'https://oauth2.googleapis.com/token',
-      new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri, // dynamically use the one the client sent
-        grant_type: 'authorization_code',
-      }),
+      new URLSearchParams(params),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
