@@ -576,6 +576,84 @@ app.post('/api/auth/refresh', tokenLimiter, async (req, res) => {
   }
 });
 
+// ============= REMOTE CONFIG =============
+
+// To enable observability: set observabilityEnabled to true here and
+// set OBSERVABILITY_ENABLED = true in src/shared/observability.ts.
+// The extension re-fetches this every hour and caches the result.
+app.get('/api/config', (_req, res) => {
+  res.json({
+    observabilityEnabled: false,  // ← flip to true to activate
+  });
+});
+
+// ============= ANALYTICS =============
+
+// Allowlist of valid event names — rejects anything unexpected
+const VALID_EVENTS = new Set([
+  'vault_created',
+  'vault_unlocked',
+  'vault_locked',
+  'autofill_triggered',
+  'autofill_succeeded',
+  'password_saved',
+  'password_deleted',
+  'password_generated',
+  'sync_succeeded',
+  'sync_failed',
+  'export_completed',
+  'import_completed',
+  'license_activated',
+  'license_validation_failed',
+]);
+
+// Analytics rate limit: 60 events per 15 min per IP
+const analyticsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/api/analytics/event', analyticsLimiter, async (req, res) => {
+  try {
+    const { event, installId, meta = {}, ts } = req.body;
+
+    // Validate event name against allowlist
+    if (!event || !VALID_EVENTS.has(event)) {
+      return res.status(400).json({ error: 'Invalid event' });
+    }
+
+    // installId must be a UUID — reject anything else
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!installId || !uuidRegex.test(installId)) {
+      return res.status(400).json({ error: 'Invalid installId' });
+    }
+
+    // Scrub meta — only allow primitive values, no nested objects
+    const safeMeta = {};
+    for (const [key, value] of Object.entries(meta)) {
+      if (['string', 'number', 'boolean'].includes(typeof value)) {
+        safeMeta[key] = value;
+      }
+    }
+
+    await db.collection('analytics').add({
+      event,
+      installId,
+      meta: safeMeta,
+      ts: ts ? new Date(ts) : new Date(),
+      receivedAt: new Date(),
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Analytics error:', error.message);
+    // Always return 200 — analytics failures should never surface to the extension
+    res.json({ ok: false });
+  }
+});
+
 // ============= HELPER FUNCTIONS =============
 
 /**
