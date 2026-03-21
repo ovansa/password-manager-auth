@@ -35,7 +35,7 @@ app.use(
       }
     },
     credentials: true,
-  })
+  }),
 );
 
 // ── Rate limiting ──────────────────────────────────────────────────────────
@@ -48,16 +48,18 @@ app.use(
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  message: {
+    error: 'Too many login attempts. Please try again in 15 minutes.',
+  },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // only count failures toward the limit
 });
 
-// Registration: 5 new accounts per hour per IP.
+// Registration: 20 new accounts per hour per IP.
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 20,
   message: { error: 'Too many registration attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -104,7 +106,6 @@ app.use((req, res, next) => {
   generalLimiter(req, res, next);
 });
 
-
 const admin = require('firebase-admin');
 const { HttpStatusCode } = require('axios');
 
@@ -116,8 +117,13 @@ const requiredEnvVars = [
 ];
 const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingEnvVars.length > 0) {
-  console.error('FATAL: Missing required environment variables:', missingEnvVars.join(', '));
-  console.error('Set these in your Render dashboard under Environment > Environment Variables');
+  console.error(
+    'FATAL: Missing required environment variables:',
+    missingEnvVars.join(', '),
+  );
+  console.error(
+    'Set these in your Render dashboard under Environment > Environment Variables',
+  );
   process.exit(1);
 }
 
@@ -132,7 +138,9 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-console.log('Firebase Admin initialized successfully', { projectId: process.env.FIREBASE_PROJECT_ID });
+console.log('Firebase Admin initialized successfully', {
+  projectId: process.env.FIREBASE_PROJECT_ID,
+});
 
 // Helper functions
 const getCurrentTimestamp = () => new Date().toISOString();
@@ -158,109 +166,114 @@ const csrfProtection = (req, res, next) => {
 // ============= AUTH ENDPOINTS =============
 
 // Route: Register new user
-app.post('/api/auth/register', registerLimiter, csrfProtection, async (req, res) => {
-  const requestTimestamp = getCurrentTimestamp();
-  console.log('User registration attempt', {
-    timestamp: requestTimestamp,
-    ip: req.ip,
-  });
+app.post(
+  '/api/auth/register',
+  registerLimiter,
+  csrfProtection,
+  async (req, res) => {
+    const requestTimestamp = getCurrentTimestamp();
+    console.log('User registration attempt', {
+      timestamp: requestTimestamp,
+      ip: req.ip,
+    });
 
-  try {
-    const { email, passwordHash, kdfIterations, kdfType } = req.body;
+    try {
+      const { email, passwordHash, kdfIterations, kdfType } = req.body;
 
-    // Validation
-    if (!email || !passwordHash || !kdfIterations || !kdfType) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-      });
-    }
+      // Validation
+      if (!email || !passwordHash || !kdfIterations || !kdfType) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required fields',
+        });
+      }
 
-    const sanitizedEmail = sanitizeEmail(email);
-    if (!validateEmail(sanitizedEmail)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid email format',
-      });
-    }
+      const sanitizedEmail = sanitizeEmail(email);
+      if (!validateEmail(sanitizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid email format',
+        });
+      }
 
-    // Validate KDF parameters
-    if (kdfIterations < 100000 || kdfIterations > 2000000) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid KDF iterations',
-      });
-    }
+      // Validate KDF parameters
+      if (kdfIterations < 100000 || kdfIterations > 2000000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid KDF iterations',
+        });
+      }
 
-    // Check if user already exists
-    const userRef = db.collection('users').doc(sanitizedEmail);
-    const userDoc = await userRef.get();
+      // Check if user already exists
+      const userRef = db.collection('users').doc(sanitizedEmail);
+      const userDoc = await userRef.get();
 
-    if (userDoc.exists) {
-      // Log internally but never confirm email existence to the caller
-      console.log('Registration declined - account exists', {
+      if (userDoc.exists) {
+        // Log internally but never confirm email existence to the caller
+        console.log('Registration declined - account exists', {
+          timestamp: getCurrentTimestamp(),
+          email: sanitizedEmail,
+        });
+        return res
+          .status(400)
+          .json({ success: false, error: 'Registration unsuccessful' });
+      }
+
+      // Check subscription status
+      // const hasValidSubscription = await checkSubscriptionStatus(sanitizedEmail);
+      // if (!hasValidSubscription) {
+      //   console.log('Registration failed - no subscription', {
+      //     timestamp: getCurrentTimestamp(),
+      //     email: sanitizedEmail,
+      //   });
+      //   return res
+      //     .status(400)
+      //     .json({ success: false, error: 'No valid subscription' });
+      // }
+
+      // Hash the password hash again server-side
+      const serverHash = await bcrypt.hash(passwordHash, 12);
+
+      // Create user document
+      const userData = {
+        email: sanitizedEmail,
+        authHash: serverHash,
+        kdfIterations: parseInt(kdfIterations),
+        kdfType: kdfType,
+        isSubscribed: true,
+        createdAt: new Date(),
+        lastLogin: null,
+        isActive: true,
+        loginAttempts: 0,
+        lockedUntil: null,
+      };
+
+      await userRef.set(userData);
+
+      console.log('User registered successfully', {
         timestamp: getCurrentTimestamp(),
         email: sanitizedEmail,
+        duration: `${Date.now() - new Date(requestTimestamp).getTime()}ms`,
       });
-      return res
-        .status(400)
-        .json({ success: false, error: 'Registration unsuccessful' });
+
+      res
+        .status(HttpStatusCode.Created)
+        .json({ success: true, message: 'User registered' });
+    } catch (error) {
+      const errorTimestamp = getCurrentTimestamp();
+      console.error('Registration error:', {
+        timestamp: errorTimestamp,
+        error: error.message,
+        duration: `${Date.now() - new Date(requestTimestamp).getTime()}ms`,
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Registration failed',
+      });
     }
-
-    // Check subscription status
-    // const hasValidSubscription = await checkSubscriptionStatus(sanitizedEmail);
-    // if (!hasValidSubscription) {
-    //   console.log('Registration failed - no subscription', {
-    //     timestamp: getCurrentTimestamp(),
-    //     email: sanitizedEmail,
-    //   });
-    //   return res
-    //     .status(400)
-    //     .json({ success: false, error: 'No valid subscription' });
-    // }
-
-    // Hash the password hash again server-side
-    const serverHash = await bcrypt.hash(passwordHash, 12);
-
-    // Create user document
-    const userData = {
-      email: sanitizedEmail,
-      authHash: serverHash,
-      kdfIterations: parseInt(kdfIterations),
-      kdfType: kdfType,
-      isSubscribed: true,
-      createdAt: new Date(),
-      lastLogin: null,
-      isActive: true,
-      loginAttempts: 0,
-      lockedUntil: null,
-    };
-
-    await userRef.set(userData);
-
-    console.log('User registered successfully', {
-      timestamp: getCurrentTimestamp(),
-      email: sanitizedEmail,
-      duration: `${Date.now() - new Date(requestTimestamp).getTime()}ms`,
-    });
-
-    res
-      .status(HttpStatusCode.Created)
-      .json({ success: true, message: 'User registered' });
-  } catch (error) {
-    const errorTimestamp = getCurrentTimestamp();
-    console.error('Registration error:', {
-      timestamp: errorTimestamp,
-      error: error.message,
-      duration: `${Date.now() - new Date(requestTimestamp).getTime()}ms`,
-    });
-
-    res.status(500).json({
-      success: false,
-      error: 'Registration failed',
-    });
-  }
-});
+  },
+);
 
 // Route: User login
 app.post('/api/auth/login', loginLimiter, csrfProtection, async (req, res) => {
@@ -391,7 +404,10 @@ app.get('/api/auth/kdf-params', kdfLimiter, async (req, res) => {
       type: user.kdfType,
     });
   } catch (error) {
-    console.error('KDF params error:', { message: error.message, code: error.code });
+    console.error('KDF params error:', {
+      message: error.message,
+      code: error.code,
+    });
     res.status(500).json({ error: 'Failed to get parameters' });
   }
 });
@@ -508,7 +524,7 @@ app.post('/api/auth/google', tokenLimiter, async (req, res) => {
       new URLSearchParams(params),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      }
+      },
     );
 
     res.json({
@@ -583,7 +599,7 @@ app.post('/api/auth/refresh', tokenLimiter, async (req, res) => {
 // The extension re-fetches this every hour and caches the result.
 app.get('/api/config', (_req, res) => {
   res.json({
-    observabilityEnabled: false,  // ← flip to true to activate
+    observabilityEnabled: false, // ← flip to true to activate
   });
 });
 
@@ -625,7 +641,8 @@ app.post('/api/analytics/event', analyticsLimiter, async (req, res) => {
     }
 
     // installId must be a UUID — reject anything else
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!installId || !uuidRegex.test(installId)) {
       return res.status(400).json({ error: 'Invalid installId' });
     }
@@ -707,5 +724,5 @@ app.use((_req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
-  console.log(`[${getCurrentTimestamp()}] Server running on port ${PORT}`)
+  console.log(`[${getCurrentTimestamp()}] Server running on port ${PORT}`),
 );
