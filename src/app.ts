@@ -18,6 +18,10 @@ import configRouter from './routes/config';
 
 const app = express();
 
+// Trust Railway/Render's reverse proxy so req.ip and rate limiters see the
+// real client IP from X-Forwarded-For rather than the proxy's internal address.
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
