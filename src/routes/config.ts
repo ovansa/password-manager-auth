@@ -1,4 +1,8 @@
 import { Router, Request, Response } from 'express';
+import {
+  DEFAULT_LICENSE_POLICY,
+  getLicensePublicKeyPem,
+} from '../helpers/license';
 
 const router = Router();
 
@@ -8,6 +12,8 @@ const router = Router();
 router.get('/', (_req: Request, res: Response) => {
   res.json({
     observabilityEnabled: false, // ← flip to true to activate
+    licensePublicKey: getLicensePublicKeyPem(),
+    licensePolicy: DEFAULT_LICENSE_POLICY,
   });
 });
 

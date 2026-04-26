@@ -120,6 +120,11 @@ describe('GET /api/config', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('observabilityEnabled');
     expect(typeof res.body.observabilityEnabled).toBe('boolean');
+    expect(res.body.licensePublicKey).toMatch(/BEGIN PUBLIC KEY/);
+    expect(res.body.licensePolicy).toMatchObject({
+      validationFreshnessHours: expect.any(Number),
+      offlineGraceHours: expect.any(Number),
+    });
   });
 });
 

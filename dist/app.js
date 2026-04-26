@@ -10,6 +10,7 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const rateLimiters_1 = require("./middleware/rateLimiters");
 const email_1 = require("./helpers/email");
+const logger_1 = require("./helpers/logger");
 // Firebase must be initialized before any route module imports db.
 require("./config/firebase");
 const auth_1 = __importDefault(require("./routes/auth"));
@@ -19,6 +20,9 @@ const analytics_1 = __importDefault(require("./routes/analytics"));
 const config_1 = __importDefault(require("./routes/config"));
 const app = (0, express_1.default)();
 exports.app = app;
+// Trust Railway/Render's reverse proxy so req.ip and rate limiters see the
+// real client IP from X-Forwarded-For rather than the proxy's internal address.
+app.set('trust proxy', 1);
 // Security middleware
 app.use((0, helmet_1.default)());
 app.use(express_1.default.json({ limit: '10mb' }));
@@ -62,13 +66,7 @@ app.use('/api/config', config_1.default);
 // ── Error handlers ─────────────────────────────────────────────────────────
 // Global error handler (4 params required for Express to treat as error handler)
 app.use((error, req, res, _next) => {
-    console.error('Unhandled error:', {
-        timestamp: (0, email_1.getCurrentTimestamp)(),
-        error: error.message,
-        stack: error.stack,
-        url: req.url,
-        method: req.method,
-    });
+    logger_1.logger.error('app.unhandled_error', error, { method: req.method, url: req.url });
     res.status(500).json({ error: 'Internal server error', timestamp: (0, email_1.getCurrentTimestamp)() });
 });
 // 404 handler

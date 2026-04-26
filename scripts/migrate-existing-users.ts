@@ -4,24 +4,20 @@
  * who do not already have one in the subscriptions collection.
  *
  * Usage:
+ *   pnpm tsx scripts/migrate-existing-users.ts --plan trial_3m
+ *   pnpm tsx scripts/migrate-existing-users.ts --plan annual
  *   pnpm tsx scripts/migrate-existing-users.ts --plan lifetime
  *   pnpm tsx scripts/migrate-existing-users.ts --plan biannual
  *   pnpm tsx scripts/migrate-existing-users.ts --dry-run --plan lifetime
  *
  * Options:
- *   --plan      Plan to grant: trial_2w | monthly | biannual | lifetime
+ *   --plan      Plan to grant: trial_1d | trial_2w | trial_3m | monthly | annual | biannual | lifetime
  *   --dry-run   Print what would happen without writing anything
  */
 
 import 'dotenv/config';
 import { db, admin } from '../src/config/firebase';
-
-const PLANS: Record<string, { duration_days: number | null }> = {
-  trial_2w: { duration_days: 14 },
-  monthly:  { duration_days: 30 },
-  biannual: { duration_days: 180 },
-  lifetime: { duration_days: null },
-};
+import { LICENSE_PLAN_DURATIONS_DAYS } from '../src/helpers/license';
 
 const args = process.argv.slice(2);
 const get = (flag: string): string | null => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
@@ -29,14 +25,18 @@ const has = (flag: string): boolean => args.includes(flag);
 
 const plan = get('--plan');
 const dryRun = has('--dry-run');
+const planChoices = Object.keys(LICENSE_PLAN_DURATIONS_DAYS);
 
-if (!plan || !PLANS[plan]) {
-  console.error(`Error: --plan must be one of: ${Object.keys(PLANS).join(', ')}`);
+if (!plan || !(plan in LICENSE_PLAN_DURATIONS_DAYS)) {
+  console.error(`Error: --plan must be one of: ${planChoices.join(', ')}`);
   process.exit(1);
 }
 
 async function main(): Promise<void> {
-  const { duration_days } = PLANS[plan!];
+  const duration_days =
+    LICENSE_PLAN_DURATIONS_DAYS[
+      plan as keyof typeof LICENSE_PLAN_DURATIONS_DAYS
+    ];
 
   console.log(`\nMigration config:`);
   console.log(`  Plan:    ${plan}`);

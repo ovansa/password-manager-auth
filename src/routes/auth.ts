@@ -4,9 +4,16 @@ import axios, { HttpStatusCode } from 'axios';
 import { db, admin } from '../config/firebase';
 import { csrfProtection } from '../middleware/csrf';
 import { loginLimiter, registerLimiter, kdfLimiter, tokenLimiter } from '../middleware/rateLimiters';
-import { getCurrentTimestamp } from '../helpers/email';
-import { validateEmail, sanitizeEmail } from '../helpers/email';
-import { hashKey, getLicenseForUser } from '../helpers/license';
+import { getCurrentTimestamp, validateEmail, sanitizeEmail } from '../helpers/email';
+import {
+  createFreeLicense,
+  hashKey,
+  getLicenseForUser,
+  getLicensePlanDurationDays,
+  isPaidLicensePlan,
+  PaidLicensePlan,
+  signLicenseForUser,
+} from '../helpers/license';
 import { logger } from '../helpers/logger';
 
 const router = Router();
@@ -24,7 +31,7 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
       licenseKey?: string;
     };
 
-    if (!email || !passwordHash || !kdfIterations || !kdfType || !licenseKey) {
+    if (!email || !passwordHash || !kdfIterations || !kdfType) {
       logger.warn('register.missing_fields', { ip: req.ip });
       res.status(400).json({ success: false, error: 'Missing required fields' });
       return;
@@ -37,7 +44,7 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
       return;
     }
 
-    if (kdfIterations < 100000 || kdfIterations > 2000000) {
+    if (kdfIterations < 600000 || kdfIterations > 2000000) {
       logger.warn('register.invalid_kdf_iterations', { email: sanitizedEmail, kdfIterations });
       res.status(400).json({ success: false, error: 'Invalid KDF iterations' });
       return;
@@ -59,20 +66,36 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
       return;
     }
 
-    const keyHash = hashKey(licenseKey);
-    const keyDoc = await db.collection('license_keys').doc(keyHash).get();
+    const trimmedLicenseKey = licenseKey?.trim();
+    let keyHash: string | null = null;
+    let keyData: Record<string, unknown> | null = null;
+    let keyPlan: PaidLicensePlan | null = null;
 
-    if (!keyDoc.exists || keyDoc.data()!['revoked']) {
-      logger.warn('register.invalid_license', { email: sanitizedEmail });
-      res.status(400).json({ success: false, error: 'Invalid license key' });
-      return;
-    }
+    if (trimmedLicenseKey) {
+      keyHash = hashKey(trimmedLicenseKey);
+      const keyDoc = await db.collection('license_keys').doc(keyHash).get();
 
-    const keyData = keyDoc.data()!;
-    if (keyData['use_count'] >= keyData['max_uses'] && keyData['activated_by'] !== sanitizedEmail) {
-      logger.warn('register.license_exhausted', { email: sanitizedEmail });
-      res.status(400).json({ success: false, error: 'License key has already been used' });
-      return;
+      if (!keyDoc.exists || keyDoc.data()!['revoked']) {
+        logger.warn('register.invalid_license', { email: sanitizedEmail });
+        res.status(400).json({ success: false, error: 'Invalid license key' });
+        return;
+      }
+
+      keyData = keyDoc.data()!;
+      if (!isPaidLicensePlan(keyData['plan'])) {
+        logger.warn('register.invalid_license_plan', { email: sanitizedEmail, plan: keyData['plan'] });
+        res.status(400).json({ success: false, error: 'Invalid license key' });
+        return;
+      }
+      keyPlan = keyData['plan'];
+      if (
+        Number(keyData['use_count'] ?? 0) >= Number(keyData['max_uses'] ?? 1) &&
+        keyData['activated_by'] !== sanitizedEmail
+      ) {
+        logger.warn('register.license_exhausted', { email: sanitizedEmail });
+        res.status(400).json({ success: false, error: 'License key has already been used' });
+        return;
+      }
     }
 
     const serverHash = await bcrypt.hash(passwordHash, 12);
@@ -82,7 +105,7 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
       authHash: serverHash,
       kdfIterations: parseInt(String(kdfIterations)),
       kdfType,
-      isSubscribed: true,
+      isSubscribed: !!keyData,
       createdAt: new Date(),
       lastLogin: null,
       isActive: true,
@@ -92,47 +115,66 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
 
     await userRef.set(userData);
 
-    let expires_at: Date | null = null;
-    if (keyData['duration_days']) {
-      expires_at = new Date(Date.now() + keyData['duration_days'] * 24 * 60 * 60 * 1000);
+    let license = createFreeLicense();
+
+    if (keyData && keyHash && keyPlan) {
+      let expires_at: Date | null = null;
+      const durationDays =
+        keyData['duration_days'] === undefined
+          ? getLicensePlanDurationDays(keyPlan)
+          : typeof keyData['duration_days'] === 'number'
+          ? keyData['duration_days']
+          : null;
+      if (durationDays) {
+        expires_at = new Date(durationDays * 24 * 60 * 60 * 1000 + Date.now());
+      }
+
+      const batch = db.batch();
+
+      batch.update(db.collection('license_keys').doc(keyHash), {
+        activated_by: sanitizedEmail,
+        activated_at: admin.firestore.FieldValue.serverTimestamp(),
+        use_count: admin.firestore.FieldValue.increment(1),
+      });
+
+      batch.set(db.collection('subscriptions').doc(sanitizedEmail), {
+        status: 'active',
+        plan: keyPlan,
+        expires_at: expires_at ? admin.firestore.Timestamp.fromDate(expires_at) : null,
+        activated_at: admin.firestore.FieldValue.serverTimestamp(),
+        renewed_at: null,
+        key_hash: keyHash,
+      });
+
+      batch.set(db.collection('license_activations').doc(), {
+        email: sanitizedEmail,
+        key_hash: keyHash,
+        action: 'activated',
+        plan: keyPlan,
+        expires_at: expires_at ? admin.firestore.Timestamp.fromDate(expires_at) : null,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        ip: req.ip,
+      });
+
+      await batch.commit();
+      license = {
+        status: 'active',
+        plan: keyPlan,
+        expires_at: expires_at ? expires_at.toISOString() : null,
+      };
     }
-
-    const batch = db.batch();
-
-    batch.update(db.collection('license_keys').doc(keyHash), {
-      activated_by: sanitizedEmail,
-      activated_at: admin.firestore.FieldValue.serverTimestamp(),
-      use_count: admin.firestore.FieldValue.increment(1),
-    });
-
-    batch.set(db.collection('subscriptions').doc(sanitizedEmail), {
-      status: 'active',
-      plan: keyData['plan'],
-      expires_at: expires_at ? admin.firestore.Timestamp.fromDate(expires_at) : null,
-      activated_at: admin.firestore.FieldValue.serverTimestamp(),
-      renewed_at: null,
-      key_hash: keyHash,
-    });
-
-    batch.set(db.collection('license_activations').doc(), {
-      email: sanitizedEmail,
-      key_hash: keyHash,
-      action: 'activated',
-      plan: keyData['plan'],
-      expires_at: expires_at ? admin.firestore.Timestamp.fromDate(expires_at) : null,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      ip: req.ip,
-    });
-
-    await batch.commit();
 
     logger.info('register.success', {
       email: sanitizedEmail,
-      plan: keyData['plan'],
+      plan: license.plan,
       durationMs: Date.now() - startMs,
     });
 
-    res.status(HttpStatusCode.Created).json({ success: true, message: 'User registered' });
+    res.status(HttpStatusCode.Created).json({
+      success: true,
+      message: 'User registered',
+      license: signLicenseForUser(sanitizedEmail, license),
+    });
   } catch (error) {
     logger.error('register.error', error, { durationMs: Date.now() - startMs });
     res.status(500).json({ success: false, error: 'Registration failed' });
@@ -158,7 +200,7 @@ router.post('/login', loginLimiter, csrfProtection, async (req: Request, res: Re
 
     if (!userDoc.exists) {
       await bcrypt.hash('dummy_password', 12); // consistent timing
-      logger.warn('login.unknown_user', { ip: req.ip });
+      logger.warn('login.failed', { ip: req.ip });
       res.status(401).json({ success: false, error: 'Invalid credentials' });
       return;
     }
@@ -188,7 +230,7 @@ router.post('/login', loginLimiter, csrfProtection, async (req: Request, res: Re
           lockedUntil: lockedUntil.toISOString(),
         });
       } else {
-        logger.warn('login.bad_password', { email: sanitizedEmail, attempts });
+        logger.warn('login.failed', { ip: req.ip, attempts });
       }
       await userRef.update(updates);
       res.status(401).json({ success: false, error: 'Invalid credentials' });
@@ -214,7 +256,7 @@ router.post('/login', loginLimiter, csrfProtection, async (req: Request, res: Re
         kdfIterations: user['kdfIterations'],
         kdfType: user['kdfType'],
       },
-      license: license ?? { status: 'none', plan: null, expires_at: null },
+      license: signLicenseForUser(sanitizedEmail, license ?? createFreeLicense()),
     });
   } catch (error) {
     logger.error('login.error', error, { durationMs: Date.now() - startMs });
@@ -242,7 +284,7 @@ router.get('/kdf-params', kdfLimiter, async (req: Request, res: Response) => {
 
     if (!userDoc.exists) {
       // Return defaults to prevent user enumeration
-      res.json({ iterations: 310000, type: 'pbkdf2-sha256' });
+      res.json({ iterations: 600000, type: 'pbkdf2-sha256' });
       return;
     }
 

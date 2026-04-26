@@ -9,6 +9,8 @@ const CSRF_HEADERS = { 'X-Requested-With': 'XMLHttpRequest' };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+  (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_value');
   mockDocRef.get.mockResolvedValue(makeDoc(false));
   mockDocRef.set.mockResolvedValue(undefined);
   mockDocRef.update.mockResolvedValue(undefined);
@@ -22,7 +24,7 @@ describe('POST /api/auth/register', () => {
   const validBody = {
     email: 'user@example.com',
     passwordHash: 'abc123hash',
-    kdfIterations: 310000,
+    kdfIterations: 600000,
     kdfType: 'pbkdf2-sha256',
     licenseKey: 'VALID-LICENSE-KEY',
   };
@@ -33,7 +35,7 @@ describe('POST /api/auth/register', () => {
     max_uses: 1,
     activated_by: null,
     duration_days: 365,
-    plan: 'pro',
+    plan: 'annual',
   };
 
   test('rejects without CSRF header', async () => {
@@ -114,6 +116,19 @@ describe('POST /api/auth/register', () => {
     expect(res.body.error).toMatch(/invalid license key/i);
   });
 
+  test('rejects license key with unknown plan', async () => {
+    mockDocRef.get
+      .mockResolvedValueOnce(makeDoc(false))
+      .mockResolvedValueOnce(makeDoc(true, { ...validKeyData, plan: 'enterprise' }));
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set(CSRF_HEADERS)
+      .send(validBody);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid license key/i);
+  });
+
   test('rejects license key already used by someone else', async () => {
     mockDocRef.get
       .mockResolvedValueOnce(makeDoc(false))
@@ -143,8 +158,27 @@ describe('POST /api/auth/register', () => {
       .send(validBody);
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
+    expect(res.body.license).toMatchObject({ status: 'active', plan: 'annual' });
+    expect(res.body.license.token).toEqual(expect.any(String));
     expect(bcrypt.hash).toHaveBeenCalledWith(validBody.passwordHash, 12);
     expect(mockBatch.commit).toHaveBeenCalled();
+  });
+
+  test('registers a free user when license key is omitted', async () => {
+    const freeBody = { ...validBody };
+    delete (freeBody as Partial<typeof validBody>).licenseKey;
+    mockDocRef.get.mockResolvedValueOnce(makeDoc(false));
+
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set(CSRF_HEADERS)
+      .send(freeBody);
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.license).toMatchObject({ status: 'free', plan: 'free' });
+    expect(res.body.license.token).toEqual(expect.any(String));
+    expect(mockBatch.commit).not.toHaveBeenCalled();
   });
 
   test('returns 500 on unexpected Firestore error', async () => {
@@ -165,7 +199,7 @@ describe('POST /api/auth/login', () => {
   const validUser = {
     email: 'user@example.com',
     authHash: 'hashed_value',
-    kdfIterations: 310000,
+    kdfIterations: 600000,
     kdfType: 'pbkdf2-sha256',
     loginAttempts: 0,
     lockedUntil: null,
@@ -242,7 +276,7 @@ describe('POST /api/auth/login', () => {
   test('returns user and license on successful login', async () => {
     mockDocRef.get
       .mockResolvedValueOnce(makeDoc(true, validUser))
-      .mockResolvedValueOnce(makeDoc(true, { status: 'active', plan: 'pro', expires_at: null }));
+      .mockResolvedValueOnce(makeDoc(true, { status: 'active', plan: 'annual', expires_at: null }));
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -252,17 +286,17 @@ describe('POST /api/auth/login', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.user).toMatchObject({
       email: 'user@example.com',
-      kdfIterations: 310000,
+      kdfIterations: 600000,
       kdfType: 'pbkdf2-sha256',
     });
-    expect(res.body.license).toMatchObject({ status: 'active', plan: 'pro' });
+    expect(res.body.license).toMatchObject({ status: 'active', plan: 'annual' });
   });
 
   test('marks expired license and returns expired status', async () => {
     const pastDate = { toDate: () => new Date('2020-01-01') };
     mockDocRef.get
       .mockResolvedValueOnce(makeDoc(true, validUser))
-      .mockResolvedValueOnce(makeDoc(true, { status: 'active', plan: 'pro', expires_at: pastDate }));
+      .mockResolvedValueOnce(makeDoc(true, { status: 'active', plan: 'annual', expires_at: pastDate }));
 
     const res = await request(app)
       .post('/api/auth/login')
@@ -272,7 +306,7 @@ describe('POST /api/auth/login', () => {
     expect(res.body.license.status).toBe('expired');
   });
 
-  test('returns license: none when no subscription exists', async () => {
+  test('returns free license when no subscription exists', async () => {
     mockDocRef.get
       .mockResolvedValueOnce(makeDoc(true, validUser))
       .mockResolvedValueOnce(makeDoc(false));
@@ -282,7 +316,8 @@ describe('POST /api/auth/login', () => {
       .set(CSRF_HEADERS)
       .send({ email: 'user@example.com', passwordHash: 'correcthash' });
     expect(res.status).toBe(200);
-    expect(res.body.license).toEqual({ status: 'none', plan: null, expires_at: null });
+    expect(res.body.license).toMatchObject({ status: 'free', plan: 'free', expires_at: null });
+    expect(res.body.license.token).toEqual(expect.any(String));
   });
 
   test('returns 500 on unexpected Firestore error', async () => {
@@ -320,7 +355,7 @@ describe('GET /api/auth/kdf-params', () => {
       .get('/api/auth/kdf-params')
       .query({ email: 'unknown@example.com' });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ iterations: 310000, type: 'pbkdf2-sha256' });
+    expect(res.body).toMatchObject({ iterations: 600000, type: 'pbkdf2-sha256' });
   });
 
   test('returns user KDF params for existing user', async () => {

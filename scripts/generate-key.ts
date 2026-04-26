@@ -3,16 +3,23 @@
  * Passa license key generator.
  *
  * Usage:
+ *   pnpm tsx scripts/generate-key.ts --plan trial_1d
  *   pnpm tsx scripts/generate-key.ts --plan monthly
+ *   pnpm tsx scripts/generate-key.ts --plan annual
  *   pnpm tsx scripts/generate-key.ts --plan biannual
  *   pnpm tsx scripts/generate-key.ts --plan lifetime
  *   pnpm tsx scripts/generate-key.ts --plan trial_2w
+ *   pnpm tsx scripts/generate-key.ts --plan trial_3m
  *   pnpm tsx scripts/generate-key.ts --plan monthly --count 5
  *   pnpm tsx scripts/generate-key.ts --plan monthly --note "sent to John"
+ *   pnpm tsx scripts/generate-key.ts --plan trial_3m --count 20 --note "early access batch 1"
  *
  * Plans:
+ *   trial_1d  → 1 day (testing)
  *   trial_2w  → 14 days
+ *   trial_3m  → 90 days (early access offer)
  *   monthly   → 30 days
+ *   annual    → 365 days
  *   biannual  → 180 days
  *   lifetime  → no expiry
  */
@@ -20,16 +27,7 @@
 import 'dotenv/config';
 import crypto from 'crypto';
 import { db, admin } from '../src/config/firebase';
-import { hashKey } from '../src/helpers/license';
-
-// ── Plans ─────────────────────────────────────────────────────────────────────
-
-const PLANS: Record<string, { duration_days: number | null }> = {
-  trial_2w: { duration_days: 14 },
-  monthly: { duration_days: 30 },
-  biannual: { duration_days: 180 },
-  lifetime: { duration_days: null },
-};
+import { hashKey, LICENSE_PLAN_DURATIONS_DAYS } from '../src/helpers/license';
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -42,10 +40,11 @@ const get = (flag: string): string | null => {
 const plan = get('--plan');
 const count = parseInt(get('--count') ?? '1', 10);
 const note = get('--note') ?? '';
+const planChoices = Object.keys(LICENSE_PLAN_DURATIONS_DAYS);
 
-if (!plan || !PLANS[plan]) {
+if (!plan || !(plan in LICENSE_PLAN_DURATIONS_DAYS)) {
   console.error(
-    `Error: --plan must be one of: ${Object.keys(PLANS).join(', ')}`,
+    `Error: --plan must be one of: ${planChoices.join(', ')}`,
   );
   process.exit(1);
 }
@@ -60,7 +59,10 @@ function generateKey(): string {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { duration_days } = PLANS[plan!];
+  const duration_days =
+    LICENSE_PLAN_DURATIONS_DAYS[
+      plan as keyof typeof LICENSE_PLAN_DURATIONS_DAYS
+    ];
 
   for (let i = 0; i < count; i++) {
     const key = generateKey();

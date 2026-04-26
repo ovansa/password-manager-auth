@@ -21,7 +21,7 @@ const validKeyData = {
   max_uses: 1,
   activated_by: null,
   duration_days: 365,
-  plan: 'pro',
+  plan: 'annual',
 };
 
 // ── POST /api/license/activate ─────────────────────────────────────────────
@@ -67,6 +67,19 @@ describe('POST /api/license/activate', () => {
     expect(res.body.error).toMatch(/revoked/i);
   });
 
+  test('rejects key with unknown plan', async () => {
+    mockTransaction.get.mockResolvedValue(
+      makeDoc(true, { ...validKeyData, plan: 'enterprise' }),
+    );
+
+    const res = await request(app)
+      .post('/api/license/activate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'user@example.com', key: 'UNKNOWN-PLAN-KEY' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid license key/i);
+  });
+
   test('rejects key already used by a different email', async () => {
     mockTransaction.get.mockResolvedValue(
       makeDoc(true, {
@@ -100,8 +113,10 @@ describe('POST /api/license/activate', () => {
       .send({ email: 'user@example.com', key: 'VALID-KEY' });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.plan).toBe('pro');
+    expect(res.body.plan).toBe('annual');
     expect(res.body).toHaveProperty('expires_at');
+    expect(res.body.license).toMatchObject({ status: 'active', plan: 'annual' });
+    expect(res.body.license.token).toEqual(expect.any(String));
   });
 
   test('allows re-activation by the same email', async () => {
@@ -149,12 +164,46 @@ describe('POST /api/license/activate', () => {
   });
 });
 
+// ── POST /api/license/validate ────────────────────────────────────────────
+
+describe('POST /api/license/validate', () => {
+  test('returns signed free license when no subscription exists', async () => {
+    mockDocRef.get.mockResolvedValue(makeDoc(false));
+
+    const res = await request(app)
+      .post('/api/license/validate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'free@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.license).toMatchObject({ status: 'free', plan: 'free' });
+    expect(res.body.license.token).toEqual(expect.any(String));
+  });
+
+  test('returns signed active license for subscribed user', async () => {
+    mockDocRef.get.mockResolvedValue(
+      makeDoc(true, { status: 'active', plan: 'annual', expires_at: null }),
+    );
+
+    const res = await request(app)
+      .post('/api/license/validate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'user@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.license).toMatchObject({ status: 'active', plan: 'annual' });
+    expect(res.body.license.token).toEqual(expect.any(String));
+  });
+});
+
 // ── POST /api/subscription/check-eligibility ──────────────────────────────
 
 describe('POST /api/subscription/check-eligibility', () => {
   test('returns false when email missing', async () => {
     const res = await request(app)
       .post('/api/subscription/check-eligibility')
+      .set(CSRF_HEADERS)
       .send({});
     expect(res.status).toBe(400);
     expect(res.body.eligible).toBe(false);
@@ -164,6 +213,7 @@ describe('POST /api/subscription/check-eligibility', () => {
     mockDocRef.get.mockResolvedValue(makeDoc(false));
     const res = await request(app)
       .post('/api/subscription/check-eligibility')
+      .set(CSRF_HEADERS)
       .send({ email: 'nobody@example.com' });
     expect(res.status).toBe(200);
     expect(res.body.eligible).toBe(false);
@@ -173,6 +223,7 @@ describe('POST /api/subscription/check-eligibility', () => {
     mockDocRef.get.mockResolvedValue(makeDoc(true, { isSubscribed: true }));
     const res = await request(app)
       .post('/api/subscription/check-eligibility')
+      .set(CSRF_HEADERS)
       .send({ email: 'subscriber@example.com' });
     expect(res.status).toBe(200);
     expect(res.body.eligible).toBe(true);
@@ -182,6 +233,7 @@ describe('POST /api/subscription/check-eligibility', () => {
     mockDocRef.get.mockResolvedValue(makeDoc(true, { isSubscribed: false }));
     const res = await request(app)
       .post('/api/subscription/check-eligibility')
+      .set(CSRF_HEADERS)
       .send({ email: 'free@example.com' });
     expect(res.status).toBe(200);
     expect(res.body.eligible).toBe(false);
@@ -194,6 +246,7 @@ describe('POST /api/subscription/check-eligibility', () => {
 
     const res = await request(app)
       .post('/api/subscription/check-eligibility')
+      .set(CSRF_HEADERS)
       .send({ email: 'user@example.com' });
     expect(res.status).toBe(200);
     expect(res.body.eligible).toBe(false);
