@@ -7,6 +7,9 @@ process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
 process.env.SERVER_URL = 'https://test.example.com';
 process.env.NODE_ENV = 'test';
+process.env.LEMONSQUEEZY_WEBHOOK_SECRET = 'test-lemon-secret';
+process.env.LEMON_VARIANT_ANNUAL_ID = 'annual-variant';
+process.env.LEMON_VARIANT_LIFETIME_ID = 'lifetime-variant';
 
 // ── Firebase Admin mock ────────────────────────────────────────────────────
 // We mock the entire firebase-admin module so no real Firestore/credentials

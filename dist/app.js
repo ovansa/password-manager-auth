@@ -18,6 +18,8 @@ const oauth_1 = __importDefault(require("./routes/oauth"));
 const license_1 = __importDefault(require("./routes/license"));
 const analytics_1 = __importDefault(require("./routes/analytics"));
 const config_1 = __importDefault(require("./routes/config"));
+const webhooks_1 = __importDefault(require("./routes/webhooks"));
+const waitlist_1 = __importDefault(require("./routes/waitlist"));
 const app = (0, express_1.default)();
 exports.app = app;
 // Trust Railway/Render's reverse proxy so req.ip and rate limiters see the
@@ -25,6 +27,8 @@ exports.app = app;
 app.set('trust proxy', 1);
 // Security middleware
 app.use((0, helmet_1.default)());
+// Webhooks need the exact raw body for provider signature verification.
+app.use('/api/webhooks', express_1.default.raw({ type: 'application/json' }), webhooks_1.default);
 app.use(express_1.default.json({ limit: '10mb' }));
 // CORS must run before rate limiters so that 429 responses still include
 // Access-Control-Allow-Origin and are not blocked by the browser.
@@ -63,6 +67,7 @@ app.use('/api/subscription', license_1.default);
 app.use('/api/license', license_1.default);
 app.use('/api/analytics', analytics_1.default);
 app.use('/api/config', config_1.default);
+app.use('/api/waitlist', waitlist_1.default);
 // ── Error handlers ─────────────────────────────────────────────────────────
 // Global error handler (4 params required for Express to treat as error handler)
 app.use((error, req, res, _next) => {

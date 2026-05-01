@@ -66,6 +66,11 @@ export const DEFAULT_LICENSE_POLICY: LicensePolicy = {
 export const hashKey = (key: string): string =>
   crypto.createHash('sha256').update(key.trim().toUpperCase()).digest('hex');
 
+export function generateLicenseKey(): string {
+  const segment = (): string => crypto.randomBytes(2).toString('hex').toUpperCase();
+  return `PASSA-${segment()}-${segment()}-${segment()}-${segment()}`;
+}
+
 export function isPaidLicensePlan(plan: unknown): plan is PaidLicensePlan {
   return (
     typeof plan === 'string' &&

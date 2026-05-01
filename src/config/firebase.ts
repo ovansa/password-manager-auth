@@ -1,30 +1,23 @@
 import admin from 'firebase-admin';
+import { getRequiredEnv } from './env';
 import { logger } from '../helpers/logger';
 
-const requiredEnvVars = [
-  'FIREBASE_PROJECT_ID',
-  'FIREBASE_CLIENT_EMAIL',
-  'FIREBASE_PRIVATE_KEY',
-];
-
-const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
-if (missingEnvVars.length > 0) {
-  logger.fatal('startup.missing_env', { vars: missingEnvVars.join(', ') });
-  process.exit(1);
-}
+const projectId = getRequiredEnv('FIREBASE_PROJECT_ID');
+const clientEmail = getRequiredEnv('FIREBASE_CLIENT_EMAIL');
+const privateKey = getRequiredEnv('FIREBASE_PRIVATE_KEY').replace(/\\n/g, '\n');
 
 admin.initializeApp({
   credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    projectId,
+    clientEmail,
     // Render stores \n as literal \\n in env vars - convert back
-    privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+    privateKey,
   }),
 });
 
 const db = admin.firestore();
 logger.info('startup.firebase_ready', {
-  projectId: process.env.FIREBASE_PROJECT_ID,
+  projectId,
 });
 
 export { admin, db };

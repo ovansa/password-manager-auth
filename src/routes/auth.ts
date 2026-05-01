@@ -115,7 +115,7 @@ router.post('/register', registerLimiter, csrfProtection, async (req: Request, r
 
     await userRef.set(userData);
 
-    let license = createFreeLicense();
+    let license = (await getLicenseForUser(sanitizedEmail)) ?? createFreeLicense();
 
     if (keyData && keyHash && keyPlan) {
       let expires_at: Date | null = null;

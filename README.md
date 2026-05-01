@@ -25,6 +25,12 @@ pnpm dev
 | `LICENSE_SIGNING_PRIVATE_KEY` | RSA private key used to sign extension license payloads. Required in production |
 | `LICENSE_SIGNING_PUBLIC_KEY` | Optional RSA public key to expose from `/api/config`; if omitted, it is derived from the private key |
 | `LICENSE_SIGNING_KEY_ID` | Optional key ID included in signed license token headers |
+| `LEMONSQUEEZY_WEBHOOK_SECRET` | Signing secret configured on the Lemon Squeezy webhook |
+| `LEMON_VARIANT_ANNUAL_ID` | Lemon Squeezy variant ID mapped to Passa `annual` |
+| `LEMON_VARIANT_LIFETIME_ID` | Lemon Squeezy variant ID mapped to Passa `lifetime` |
+| `LEMON_VARIANT_TRIAL_3M_ID` | Optional Lemon Squeezy variant ID mapped to Passa `trial_3m` |
+| `RESEND_API_KEY` | Optional API key for license delivery email; without it, emails are logged/skipped |
+| `TRANSACTIONAL_EMAIL_FROM` | Optional sender, defaults to `Passa <support@usepassa.com>` |
 
 ### Getting Firebase Admin credentials
 
@@ -76,8 +82,22 @@ Paid plans are defined in `src/helpers/license.ts` and reused by the key-generat
 | `POST` | `/api/license/activate` | CSRF | Activate a license key and return a signed entitlement |
 | `POST` | `/api/license/validate` | CSRF | Refresh the signed entitlement for a user |
 | `GET` | `/api/config` | None | Return public runtime config including license public key and policy |
-| `POST` | `/api/subscription/check-eligibility` | None | Check subscription status |
+| `POST` | `/api/subscription/check-eligibility` | CSRF | Check subscription status |
+| `POST` | `/api/webhooks/lemon-squeezy` | Lemon signature | Fulfill Lemon Squeezy purchases |
+| `POST` | `/api/waitlist` | None | Persist website waitlist signup |
 | `POST` | `/api/auth/google` | None | Exchange Google OAuth code for tokens |
 | `POST` | `/api/auth/refresh` | None | Refresh Google access token |
 
-> **CSRF protection**: `/register` and `/login` require the `X-Requested-With: XMLHttpRequest` header.
+> **CSRF protection**: `/register`, `/login`, and license/subscription POST routes require the `X-Requested-With: XMLHttpRequest` header.
+
+### Lemon Squeezy fulfillment
+
+Configure a Lemon Squeezy webhook pointing to:
+
+```text
+https://api.usepassa.com/api/webhooks/lemon-squeezy
+```
+
+Enable at least `order_created`, `subscription_created`, `subscription_updated`, `subscription_payment_success`, `subscription_payment_failed`, `subscription_cancelled`, and `subscription_expired`.
+
+The webhook verifies `X-Signature`, maps Lemon variant IDs to Passa plans, writes/updates `subscriptions/{email}`, creates a one-use license key, and emails the key when `RESEND_API_KEY` is configured. It is idempotent per Lemon event ID.

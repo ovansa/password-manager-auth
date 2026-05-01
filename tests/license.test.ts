@@ -162,6 +162,80 @@ describe('POST /api/license/activate', () => {
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/activation failed/i);
   });
+
+  test('rejects empty-string key (treated as missing)', async () => {
+    const res = await request(app)
+      .post('/api/license/activate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'user@example.com', key: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/missing email or key/i);
+  });
+
+  test('sanitizes email (trim + lowercase) before persisting and signing', async () => {
+    mockTransaction.get.mockResolvedValue(makeDoc(true, validKeyData));
+
+    const res = await request(app)
+      .post('/api/license/activate')
+      .set(CSRF_HEADERS)
+      .send({ email: '  USER@Example.COM  ', key: 'VALID-KEY' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.license.sub).toBe('user@example.com');
+
+    // subscriptions/{email} doc must use the sanitized email
+    expect(mockDb.collection).toHaveBeenCalledWith('subscriptions');
+    expect(mockCollectionRef.doc).toHaveBeenCalledWith('user@example.com');
+
+    // license_keys/{keyHash} write should use sanitized email as activated_by
+    const subSetCall = mockTransaction.set.mock.calls.find(
+      ([, payload]) => payload && (payload as { plan?: string }).plan === 'annual',
+    );
+    expect(subSetCall?.[1]).toMatchObject({ status: 'active' });
+
+    const keyUpdateCall = mockTransaction.update.mock.calls[0];
+    expect(keyUpdateCall?.[1]).toMatchObject({ activated_by: 'user@example.com' });
+  });
+
+  test('does not increment use_count when same email re-activates', async () => {
+    mockTransaction.get.mockResolvedValue(
+      makeDoc(true, {
+        ...validKeyData,
+        use_count: 1,
+        max_uses: 1,
+        activated_by: 'user@example.com',
+      }),
+    );
+
+    const res = await request(app)
+      .post('/api/license/activate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'user@example.com', key: 'MY-KEY' });
+    expect(res.status).toBe(200);
+
+    // First update call is on license_keys; use_count should be the prior
+    // value (1), not a FieldValue.increment sentinel.
+    const keyUpdate = mockTransaction.update.mock.calls[0]?.[1] as {
+      use_count?: unknown;
+    };
+    expect(keyUpdate?.use_count).toBe(1);
+  });
+
+  test('expires_at is roughly now + duration_days for time-bound plans', async () => {
+    mockTransaction.get.mockResolvedValue(makeDoc(true, validKeyData));
+    const before = Date.now();
+
+    const res = await request(app)
+      .post('/api/license/activate')
+      .set(CSRF_HEADERS)
+      .send({ email: 'user@example.com', key: 'VALID-KEY' });
+    expect(res.status).toBe(200);
+
+    const expiresAt = new Date(res.body.expires_at).getTime();
+    const expected = before + 365 * 24 * 60 * 60 * 1000;
+    // Allow 5s drift for test execution time
+    expect(Math.abs(expiresAt - expected)).toBeLessThan(5000);
+  });
 });
 
 // ── POST /api/license/validate ────────────────────────────────────────────

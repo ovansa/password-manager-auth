@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.hashKey = exports.DEFAULT_LICENSE_POLICY = exports.PAID_LICENSE_PLANS = exports.CURRENT_PAID_LICENSE_PLANS = exports.LICENSE_PLAN_DURATIONS_DAYS = void 0;
+exports.generateLicenseKey = generateLicenseKey;
 exports.isPaidLicensePlan = isPaidLicensePlan;
 exports.normalizeLicensePlan = normalizeLicensePlan;
 exports.getLicensePlanDurationDays = getLicensePlanDurationDays;
@@ -46,6 +47,10 @@ exports.DEFAULT_LICENSE_POLICY = {
 };
 const hashKey = (key) => crypto_1.default.createHash('sha256').update(key.trim().toUpperCase()).digest('hex');
 exports.hashKey = hashKey;
+function generateLicenseKey() {
+    const segment = () => crypto_1.default.randomBytes(2).toString('hex').toUpperCase();
+    return `PASSA-${segment()}-${segment()}-${segment()}-${segment()}`;
+}
 function isPaidLicensePlan(plan) {
     return (typeof plan === 'string' &&
         exports.PAID_LICENSE_PLANS.includes(plan));

@@ -1,17 +1,13 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { tokenLimiter, oauthRelayLimiter } from '../middleware/rateLimiters';
+import { getRequiredEnv } from '../config/env';
 import { getCurrentTimestamp } from '../helpers/email';
 import { logger } from '../helpers/logger';
 
 const router = Router();
 
-if (!process.env.SERVER_URL) {
-  logger.fatal('startup.missing_env', { vars: 'SERVER_URL' });
-  process.exit(1);
-}
-
-const RELAY_REDIRECT_URI = `${process.env.SERVER_URL}/api/auth/google/callback`;
+const RELAY_REDIRECT_URI = `${getRequiredEnv('SERVER_URL')}/api/auth/google/callback`;
 
 interface PendingEntry {
   code: string;

@@ -2,10 +2,13 @@ import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { validateStartupEnv } from './config/env';
 
 import { generalLimiter } from './middleware/rateLimiters';
 import { getCurrentTimestamp } from './helpers/email';
 import { logger } from './helpers/logger';
+
+validateStartupEnv();
 
 // Firebase must be initialized before any route module imports db.
 import './config/firebase';
@@ -15,6 +18,8 @@ import oauthRouter from './routes/oauth';
 import licenseRouter from './routes/license';
 import analyticsRouter from './routes/analytics';
 import configRouter from './routes/config';
+import webhooksRouter from './routes/webhooks';
+import waitlistRouter from './routes/waitlist';
 
 const app = express();
 
@@ -24,6 +29,10 @@ app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet());
+
+// Webhooks need the exact raw body for provider signature verification.
+app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
+
 app.use(express.json({ limit: '10mb' }));
 
 // CORS must run before rate limiters so that 429 responses still include
@@ -68,6 +77,18 @@ app.use('/api/subscription', licenseRouter);
 app.use('/api/license', licenseRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/config', configRouter);
+app.use('/api/waitlist', waitlistRouter);
+
+// ── API docs (dev/staging only) ────────────────────────────────────────────
+// Swagger UI is mounted at /docs unless NODE_ENV is production. This keeps
+// the API surface fully documented locally without exposing internals in prod.
+if (process.env.NODE_ENV !== 'production') {
+  // Lazy-load so swagger-ui-express isn't pulled into the prod bundle path.
+  const swaggerUi = require('swagger-ui-express');
+  const { openApiSpec } = require('./docs/openapi');
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, { customSiteTitle: 'Passa API Docs' }));
+  logger.info('docs.mounted', { path: '/docs' });
+}
 
 // ── Error handlers ─────────────────────────────────────────────────────────
 

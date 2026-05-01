@@ -14,12 +14,26 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.test.ts"],
-    "setupFiles": ["./tests/setup.ts"],
+    "testMatch": [
+      "**/tests/**/*.test.ts"
+    ],
+    "setupFiles": [
+      "./tests/setup.ts"
+    ],
     "transform": {
-      "^.+\\.tsx?$": ["ts-jest", { "tsconfig": "tests/tsconfig.json" }]
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "tsconfig": "tests/tsconfig.json"
+        }
+      ]
     },
-    "moduleFileExtensions": ["ts", "tsx", "js", "json"]
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js",
+      "json"
+    ]
   },
   "keywords": [
     "oauth",
@@ -38,7 +52,8 @@
     "express-rate-limit": "^8.0.1",
     "firebase": "^12.1.0",
     "firebase-admin": "^13.7.0",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -47,6 +62,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.6.0",
     "@types/supertest": "^7.2.0",
+    "@types/swagger-ui-express": "^4.1.8",
     "jest": "^30.3.0",
     "nodemon": "^3.1.10",
     "supertest": "^7.2.2",

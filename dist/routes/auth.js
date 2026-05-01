@@ -120,7 +120,7 @@ router.post('/register', rateLimiters_1.registerLimiter, csrf_1.csrfProtection, 
             lockedUntil: null,
         };
         await userRef.set(userData);
-        let license = (0, license_1.createFreeLicense)();
+        let license = (await (0, license_1.getLicenseForUser)(sanitizedEmail)) ?? (0, license_1.createFreeLicense)();
         if (keyData && keyHash && keyPlan) {
             let expires_at = null;
             const durationDays = keyData['duration_days'] === undefined
