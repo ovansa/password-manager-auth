@@ -6,14 +6,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const axios_1 = __importDefault(require("axios"));
 const rateLimiters_1 = require("../middleware/rateLimiters");
+const env_1 = require("../config/env");
 const email_1 = require("../helpers/email");
 const logger_1 = require("../helpers/logger");
 const router = (0, express_1.Router)();
-if (!process.env.SERVER_URL) {
-    logger_1.logger.fatal('startup.missing_env', { vars: 'SERVER_URL' });
-    process.exit(1);
-}
-const RELAY_REDIRECT_URI = `${process.env.SERVER_URL}/api/auth/google/callback`;
+const RELAY_REDIRECT_URI = `${(0, env_1.getRequiredEnv)('SERVER_URL')}/api/auth/google/callback`;
 // In-memory store for auth codes relayed from Google (keyed by state token).
 // Each entry expires after 5 minutes. This lets any browser/extension origin
 // complete the OAuth flow via a single registered redirect URI on this server.

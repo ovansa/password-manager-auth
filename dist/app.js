@@ -8,9 +8,11 @@ require("dotenv/config");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
+const env_1 = require("./config/env");
 const rateLimiters_1 = require("./middleware/rateLimiters");
 const email_1 = require("./helpers/email");
 const logger_1 = require("./helpers/logger");
+(0, env_1.validateStartupEnv)();
 // Firebase must be initialized before any route module imports db.
 require("./config/firebase");
 const auth_1 = __importDefault(require("./routes/auth"));
@@ -68,6 +70,16 @@ app.use('/api/license', license_1.default);
 app.use('/api/analytics', analytics_1.default);
 app.use('/api/config', config_1.default);
 app.use('/api/waitlist', waitlist_1.default);
+// ── API docs (dev/staging only) ────────────────────────────────────────────
+// Swagger UI is mounted at /docs unless NODE_ENV is production. This keeps
+// the API surface fully documented locally without exposing internals in prod.
+if (process.env.NODE_ENV !== 'production') {
+    // Lazy-load so swagger-ui-express isn't pulled into the prod bundle path.
+    const swaggerUi = require('swagger-ui-express');
+    const { openApiSpec } = require('./docs/openapi');
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, { customSiteTitle: 'Passa API Docs' }));
+    logger_1.logger.info('docs.mounted', { path: '/docs' });
+}
 // ── Error handlers ─────────────────────────────────────────────────────────
 // Global error handler (4 params required for Express to treat as error handler)
 app.use((error, req, res, _next) => {

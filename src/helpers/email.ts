@@ -59,30 +59,91 @@ export async function sendLicenseKeyEmail(input: {
   licenseKey: string;
   plan: string;
 }): Promise<{ sent: boolean; skipped?: boolean; error?: string }> {
-  const planLabel = input.plan.replace(/_/g, ' ');
+  const planLabel =
+    {
+      annual: 'Annual Pro',
+      lifetime: 'Lifetime Pro',
+      monthly: 'Monthly Pro',
+      biannual: 'Biannual Pro',
+      trial_1d: '1-day Pro Trial',
+      trial_2w: '2-week Pro Trial',
+      trial_3m: '3-month Pro Trial',
+      pro: 'Passa Pro',
+    }[input.plan] ?? input.plan.replace(/_/g, ' ');
+
   return sendTransactionalEmail({
     to: input.email,
-    subject: 'Your Passa License Key',
+    subject: 'Your Passa Pro License Key',
     text: [
-      'Thanks for choosing Passa Pro.',
+      'Thanks for choosing Passa Pro!',
       '',
       `Plan: ${planLabel}`,
       `License key: ${input.licenseKey}`,
       '',
-      'Open Passa, create or unlock your vault, then paste this key when asked to activate Pro.',
+      'Next steps:',
+      '1. Open the Passa extension',
+      '2. Create or unlock your vault',
+      '3. Paste this key when asked to activate Pro',
       '',
-      'If you need help, reply to support@usepassa.com.',
+      'Need help? Contact support@usepassa.com',
     ].join('\n'),
     html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827">
-        <h2>Your Passa License Key</h2>
-        <p>Thanks for choosing Passa Pro.</p>
-        <p><strong>Plan:</strong> ${planLabel}</p>
-        <p><strong>License key:</strong></p>
-        <p style="font-size:18px;font-weight:700;letter-spacing:0.04em;background:#f3f4f6;padding:12px 14px;border-radius:6px">${input.licenseKey}</p>
-        <p>Open Passa, create or unlock your vault, then paste this key when asked to activate Pro.</p>
-        <p>If you need help, email <a href="mailto:support@usepassa.com">support@usepassa.com</a>.</p>
-      </div>
+      <html>
+        <head>
+          <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+        </head>
+        <body style="margin:0;padding:0;background:#ffffff">
+          <div style="font-family:'Montserrat',system-ui,-apple-system,sans-serif;background:#ffffff;padding:40px 20px">
+            <div style="max-width:580px;margin:0 auto">
+              <!-- Header -->
+              <div style="text-align:center;margin-bottom:32px">
+                <h1 style="margin:0;color:#1f2937;font-size:32px;font-weight:700;letter-spacing:-0.5px">Your License Key</h1>
+                <p style="margin:12px 0 0 0;color:#6b7280;font-size:16px;font-weight:400">Passa Pro is ready for your vault</p>
+              </div>
+
+              <!-- Main Card -->
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:32px;margin-bottom:24px">
+                <p style="margin:0 0 24px 0;color:#374151;font-size:15px;line-height:1.6;font-weight:400">Thanks for choosing Passa Pro. Your license key is ready to activate in the Passa extension.</p>
+
+                <!-- Plan Badge -->
+                <div style="margin-bottom:24px">
+                  <p style="margin:0 0 8px 0;color:#6b7280;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Your Plan</p>
+                  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:6px;padding:12px 16px;display:inline-block">
+                    <p style="margin:0;color:#1f2937;font-size:16px;font-weight:600">${planLabel}</p>
+                  </div>
+                </div>
+
+                <!-- License Key -->
+                <div style="margin-bottom:0">
+                  <p style="margin:0 0 8px 0;color:#6b7280;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">License Key</p>
+                  <div style="background:#ffffff;border:1px solid #d1d5db;border-radius:6px;padding:16px;font-family:'Courier New',monospace;word-break:break-all">
+                    <p style="margin:0;color:#1f2937;font-size:15px;font-weight:600;letter-spacing:0.02em">${input.licenseKey}</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Steps -->
+              <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;margin-bottom:24px">
+                <p style="margin:0 0 16px 0;color:#1f2937;font-size:14px;font-weight:600">Getting started is easy:</p>
+                <ol style="margin:0;padding-left:24px;color:#374151;font-size:14px;line-height:1.8;font-weight:400">
+                  <li style="margin:8px 0">Open the Passa extension</li>
+                  <li style="margin:8px 0">Create a new vault or unlock an existing one</li>
+                  <li style="margin:8px 0">When asked, paste your license key above</li>
+                  <li style="margin:8px 0">Start using Passa Pro features</li>
+                </ol>
+              </div>
+
+              <!-- Support -->
+              <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.6;font-weight:400">Questions? Our support team is here to help. Reach out to <a href="mailto:support@usepassa.com" style="color:#1f2937;text-decoration:underline;font-weight:600">support@usepassa.com</a>.</p>
+
+              <!-- Footer -->
+              <div style="margin-top:40px;padding-top:24px;border-top:1px solid #e5e7eb;text-align:center">
+                <p style="margin:0;color:#9ca3af;font-size:12px;font-weight:400">© 2026 Passa. All rights reserved.</p>
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
     `,
   });
 }
