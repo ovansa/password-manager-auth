@@ -21,6 +21,8 @@ pnpm dev
 | `FIREBASE_PRIVATE_KEY` | Same JSON → `private_key` field. Paste the full value including `-----BEGIN...` and `-----END...` lines |
 | `GOOGLE_CLIENT_ID` | Google Cloud Console → OAuth 2.0 credentials |
 | `GOOGLE_CLIENT_SECRET` | Same |
+| `DROPBOX_CLIENT_ID` | Dropbox App Console → app key for the Passa Dropbox app |
+| `DROPBOX_CLIENT_SECRET` | Optional. Dropbox app secret, only needed if you choose to require confidential-client token exchange |
 | `FRONTEND_URL` | Your deployed frontend origin (used for CORS in production) |
 | `LICENSE_SIGNING_PRIVATE_KEY` | RSA private key used to sign extension license payloads. Required in production |
 | `LICENSE_SIGNING_PUBLIC_KEY` | Optional RSA public key to expose from `/api/config`; if omitted, it is derived from the private key |
@@ -87,6 +89,11 @@ Paid plans are defined in `src/helpers/license.ts` and reused by the key-generat
 | `POST` | `/api/waitlist` | None | Persist website waitlist signup |
 | `POST` | `/api/auth/google` | None | Exchange Google OAuth code for tokens |
 | `POST` | `/api/auth/refresh` | None | Refresh Google access token |
+| `GET` | `/api/auth/dropbox/callback` | None | Dropbox OAuth redirect relay |
+| `GET` | `/api/auth/dropbox/code` | None | Poll relayed Dropbox OAuth code |
+| `GET` | `/api/auth/dropbox/redirect-uri` | None | Return Dropbox relay redirect URI |
+| `POST` | `/api/auth/dropbox` | None | Exchange Dropbox OAuth PKCE code for tokens |
+| `POST` | `/api/auth/dropbox/refresh` | None | Refresh Dropbox access token |
 
 > **CSRF protection**: `/register`, `/login`, and license/subscription POST routes require the `X-Requested-With: XMLHttpRequest` header.
 

@@ -15,6 +15,7 @@ import './config/firebase';
 
 import authRouter from './routes/auth';
 import oauthRouter from './routes/oauth';
+import dropboxRouter from './routes/dropbox';
 import licenseRouter from './routes/license';
 import analyticsRouter from './routes/analytics';
 import configRouter from './routes/config';
@@ -72,6 +73,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // /api/auth/google/* must come before /api/auth/* so the google sub-router
 // matches before Express strips the prefix.
 app.use('/api/auth/google', oauthRouter);   // /callback, /code, /redirect-uri, POST /
+app.use('/api/auth/dropbox', dropboxRouter); // POST /, /refresh
 app.use('/api/auth', authRouter);           // /register, /login, /kdf-params, /refresh
 app.use('/api/subscription', licenseRouter);
 app.use('/api/license', licenseRouter);

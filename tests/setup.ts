@@ -5,6 +5,7 @@ process.env.FIREBASE_PRIVATE_KEY =
   '-----BEGIN RSA PRIVATE KEY-----\nMIItest\n-----END RSA PRIVATE KEY-----';
 process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+process.env.DROPBOX_CLIENT_ID = 'test-dropbox-client-id';
 process.env.SERVER_URL = 'https://test.example.com';
 process.env.NODE_ENV = 'test';
 process.env.LEMONSQUEEZY_WEBHOOK_SECRET = 'test-lemon-secret';

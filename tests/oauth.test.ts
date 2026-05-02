@@ -179,3 +179,156 @@ describe('POST /api/auth/refresh', () => {
     expect(res.body.error).toMatch(/token refresh failed/i);
   });
 });
+
+// ── POST /api/auth/dropbox (token exchange) ────────────────────────────────
+
+describe('POST /api/auth/dropbox', () => {
+  test('rejects missing code', async () => {
+    const res = await request(app)
+      .post('/api/auth/dropbox')
+      .send({
+        redirect_uri: 'https://example.com/cb',
+        code_verifier: 'pkce_verifier',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/missing code/i);
+  });
+
+  test('rejects missing redirect_uri', async () => {
+    const res = await request(app)
+      .post('/api/auth/dropbox')
+      .send({ code: 'authcode', code_verifier: 'pkce_verifier' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/redirect_uri/i);
+  });
+
+  test('rejects missing code_verifier', async () => {
+    const res = await request(app)
+      .post('/api/auth/dropbox')
+      .send({ code: 'authcode', redirect_uri: 'https://example.com/cb' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/code_verifier/i);
+  });
+
+  test('exchanges code for Dropbox tokens', async () => {
+    const res = await request(app)
+      .post('/api/auth/dropbox')
+      .send({
+        code: 'authcode',
+        redirect_uri: 'https://example.com/cb',
+        code_verifier: 'pkce_verifier',
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('access_token', 'test_access_token');
+    expect(res.body).toHaveProperty('refresh_token', 'test_refresh_token');
+
+    const [url, body, config] = (axios.post as jest.Mock).mock.calls.at(-1);
+    expect(url).toBe('https://api.dropbox.com/oauth2/token');
+    expect(body.toString()).toContain('grant_type=authorization_code');
+    expect(body.toString()).toContain('client_id=test-dropbox-client-id');
+    expect(config.headers['Content-Type']).toBe(
+      'application/x-www-form-urlencoded',
+    );
+  });
+
+  test('returns 400 on Dropbox OAuth provider error', async () => {
+    (axios.post as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('invalid_grant'), {
+        response: { data: { error: 'invalid_grant' } },
+      }),
+    );
+
+    const res = await request(app)
+      .post('/api/auth/dropbox')
+      .send({
+        code: 'badcode',
+        redirect_uri: 'https://example.com/cb',
+        code_verifier: 'pkce_verifier',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/dropbox authentication failed/i);
+  });
+});
+
+// ── /api/auth/dropbox/callback + code relay ────────────────────────────────
+
+describe('Dropbox OAuth relay', () => {
+  test('returns 400 on callback error param', async () => {
+    const res = await request(app)
+      .get('/api/auth/dropbox/callback')
+      .query({ error: 'access_denied' });
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/access_denied/);
+  });
+
+  test('returns 400 when Dropbox callback code or state missing', async () => {
+    const res = await request(app)
+      .get('/api/auth/dropbox/callback')
+      .query({ code: 'authcode' });
+    expect(res.status).toBe(400);
+  });
+
+  test('returns Dropbox redirect_uri', async () => {
+    const res = await request(app).get('/api/auth/dropbox/redirect-uri');
+    expect(res.status).toBe(200);
+    expect(res.body.redirect_uri).toContain('/api/auth/dropbox/callback');
+  });
+
+  test('returns relayed Dropbox code once by state', async () => {
+    await request(app)
+      .get('/api/auth/dropbox/callback')
+      .query({ code: 'dropbox-secret-code', state: 'dropbox-state' });
+
+    const res = await request(app)
+      .get('/api/auth/dropbox/code')
+      .query({ state: 'dropbox-state' });
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe('dropbox-secret-code');
+
+    const res2 = await request(app)
+      .get('/api/auth/dropbox/code')
+      .query({ state: 'dropbox-state' });
+    expect(res2.status).toBe(404);
+  });
+});
+
+// ── POST /api/auth/dropbox/refresh ─────────────────────────────────────────
+
+describe('POST /api/auth/dropbox/refresh', () => {
+  test('rejects missing refresh_token', async () => {
+    const res = await request(app).post('/api/auth/dropbox/refresh').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/refresh_token/i);
+  });
+
+  test('refreshes Dropbox access token successfully', async () => {
+    const res = await request(app)
+      .post('/api/auth/dropbox/refresh')
+      .send({ refresh_token: 'valid_refresh_token' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('access_token', 'test_access_token');
+    expect(res.body).toHaveProperty('expires_in', 3600);
+
+    const [url, body, config] = (axios.post as jest.Mock).mock.calls.at(-1);
+    expect(url).toBe('https://api.dropbox.com/oauth2/token');
+    expect(body.toString()).toContain('grant_type=refresh_token');
+    expect(body.toString()).toContain('client_id=test-dropbox-client-id');
+    expect(config.headers['Content-Type']).toBe(
+      'application/x-www-form-urlencoded',
+    );
+  });
+
+  test('returns 400 on Dropbox refresh failure', async () => {
+    (axios.post as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('token_expired'), {
+        response: { data: { error: 'token_expired' } },
+      }),
+    );
+
+    const res = await request(app)
+      .post('/api/auth/dropbox/refresh')
+      .send({ refresh_token: 'expired_token' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/dropbox token refresh failed/i);
+  });
+});

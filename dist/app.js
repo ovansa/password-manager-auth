@@ -17,6 +17,7 @@ const logger_1 = require("./helpers/logger");
 require("./config/firebase");
 const auth_1 = __importDefault(require("./routes/auth"));
 const oauth_1 = __importDefault(require("./routes/oauth"));
+const dropbox_1 = __importDefault(require("./routes/dropbox"));
 const license_1 = __importDefault(require("./routes/license"));
 const analytics_1 = __importDefault(require("./routes/analytics"));
 const config_1 = __importDefault(require("./routes/config"));
@@ -64,6 +65,7 @@ app.use((req, res, next) => {
 // /api/auth/google/* must come before /api/auth/* so the google sub-router
 // matches before Express strips the prefix.
 app.use('/api/auth/google', oauth_1.default); // /callback, /code, /redirect-uri, POST /
+app.use('/api/auth/dropbox', dropbox_1.default); // POST /, /refresh
 app.use('/api/auth', auth_1.default); // /register, /login, /kdf-params, /refresh
 app.use('/api/subscription', license_1.default);
 app.use('/api/license', license_1.default);

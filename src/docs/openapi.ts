@@ -16,7 +16,7 @@ export const openApiSpec = {
   ],
   tags: [
     { name: 'Auth', description: 'Registration, login, token refresh, KDF params' },
-    { name: 'OAuth', description: 'Google OAuth relay' },
+    { name: 'OAuth', description: 'Google and Dropbox OAuth flows' },
     { name: 'License', description: 'License key activation and subscription checks' },
     { name: 'Analytics', description: 'Anonymous client telemetry' },
     { name: 'Config', description: 'Public client config' },
@@ -210,6 +210,92 @@ export const openApiSpec = {
         responses: {
           200: { description: 'Tokens returned' },
           400: { description: 'Authentication failed' },
+        },
+      },
+    },
+    '/api/auth/dropbox': {
+      post: {
+        tags: ['OAuth'],
+        summary: 'Exchange auth code for Dropbox tokens',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['code', 'redirect_uri', 'code_verifier'],
+                properties: {
+                  code: { type: 'string' },
+                  redirect_uri: { type: 'string' },
+                  code_verifier: { type: 'string', description: 'PKCE verifier' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Tokens returned' },
+          400: { description: 'Dropbox authentication failed' },
+          500: { description: 'Dropbox is not configured' },
+        },
+      },
+    },
+    '/api/auth/dropbox/callback': {
+      get: {
+        tags: ['OAuth'],
+        summary: 'Dropbox redirects here after consent (HTML response)',
+        parameters: [
+          { name: 'code', in: 'query', schema: { type: 'string' } },
+          { name: 'state', in: 'query', schema: { type: 'string' } },
+          { name: 'error', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Success page (HTML)' },
+          400: { description: 'Failure page (HTML)' },
+        },
+      },
+    },
+    '/api/auth/dropbox/code': {
+      get: {
+        tags: ['OAuth'],
+        summary: 'Extension polls for the relayed Dropbox auth code',
+        parameters: [
+          { name: 'state', in: 'query', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Code retrieved' },
+          404: { description: 'Pending - code not yet received' },
+          410: { description: 'Code expired' },
+        },
+      },
+    },
+    '/api/auth/dropbox/redirect-uri': {
+      get: {
+        tags: ['OAuth'],
+        summary: 'Returns the relay redirect URI registered with Dropbox',
+        responses: { 200: { description: 'redirect_uri' } },
+      },
+    },
+    '/api/auth/dropbox/refresh': {
+      post: {
+        tags: ['OAuth'],
+        summary: 'Refresh a Dropbox access token',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['refresh_token'],
+                properties: { refresh_token: { type: 'string' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'New access token' },
+          400: { description: 'Refresh failed' },
+          500: { description: 'Dropbox is not configured' },
         },
       },
     },
