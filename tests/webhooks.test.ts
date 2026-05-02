@@ -1,13 +1,22 @@
 import crypto from 'crypto';
 import request from 'supertest';
+
+jest.mock('../src/helpers/email', () => ({
+  ...jest.requireActual('../src/helpers/email'),
+  sendLicenseKeyEmail: jest.fn().mockResolvedValue({ sent: false, skipped: true }),
+}));
+
 import { app } from '../src/app';
+import { sendLicenseKeyEmail } from '../src/helpers/email';
 import { getMocks } from './getMocks';
 
 const { makeDoc, mockDocRef, mockCollectionRef, mockTransaction, mockDb } =
   getMocks();
+const mockSendLicenseKeyEmail = jest.mocked(sendLicenseKeyEmail);
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSendLicenseKeyEmail.mockResolvedValue({ sent: false, skipped: true });
   mockDocRef.update.mockResolvedValue(undefined);
   mockCollectionRef.doc.mockReturnValue(mockDocRef);
   mockTransaction.get.mockResolvedValue(makeDoc(false));
@@ -67,6 +76,12 @@ describe('POST /api/webhooks/lemon-squeezy', () => {
     expect(res.body.success).toBe(true);
     expect(mockTransaction.set).toHaveBeenCalled();
     expect(mockCollectionRef.doc).toHaveBeenCalledWith('buyer@example.com');
+    expect(mockSendLicenseKeyEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'buyer@example.com',
+        plan: 'lifetime',
+      }),
+    );
   });
 
   test('ignores unknown variants without failing Lemon retries', async () => {

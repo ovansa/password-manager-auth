@@ -10,6 +10,8 @@ process.env.NODE_ENV = 'test';
 process.env.LEMONSQUEEZY_WEBHOOK_SECRET = 'test-lemon-secret';
 process.env.LEMON_VARIANT_ANNUAL_ID = 'annual-variant';
 process.env.LEMON_VARIANT_LIFETIME_ID = 'lifetime-variant';
+delete process.env.RESEND_API_KEY;
+delete process.env.TRANSACTIONAL_EMAIL_FROM;
 
 // ── Firebase Admin mock ────────────────────────────────────────────────────
 // We mock the entire firebase-admin module so no real Firestore/credentials
