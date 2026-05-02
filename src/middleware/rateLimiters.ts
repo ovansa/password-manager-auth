@@ -3,11 +3,22 @@ import rateLimit from 'express-rate-limit';
 // In the test environment all limiters are skipped so tests never hit 429.
 const skipInTest = (): boolean => process.env.NODE_ENV === 'test';
 
-// Login: 10 attempts per 15 min per IP. Brute-force at the transport level.
-// The per-account lockout inside the handler is a second, independent layer.
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function windowMs(envName: string, fallbackMinutes: number): number {
+  return envInt(envName, fallbackMinutes) * 60 * 1000;
+}
+
+// Login: brute-force guard at the transport level.
+// Per-account lockout inside the handler is a second, independent layer.
 export const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
+  windowMs: windowMs('RATE_LIMIT_LOGIN_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_LOGIN_MAX', 10),
   message: {
     error: 'Too many login attempts. Please try again in 15 minutes.',
   },
@@ -17,69 +28,69 @@ export const loginLimiter = rateLimit({
   skip: skipInTest,
 });
 
-// Registration: 20 new accounts per hour per IP.
+// Registration: cap new account creation per IP.
 export const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
+  windowMs: windowMs('RATE_LIMIT_REGISTER_WINDOW_MIN', 60),
+  max: envInt('RATE_LIMIT_REGISTER_MAX', 20),
   message: { error: 'Too many registration attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// KDF params: 20 lookups per 15 min per IP (used just before login).
+// KDF params: looked up just before login.
 export const kdfLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
+  windowMs: windowMs('RATE_LIMIT_KDF_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_KDF_MAX', 20),
   message: { error: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// Token exchange / refresh: 20 per 15 min per IP.
+// Token exchange / refresh.
 export const tokenLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
+  windowMs: windowMs('RATE_LIMIT_TOKEN_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_TOKEN_MAX', 20),
   message: { error: 'Too many token requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// OAuth relay polling: 60 per 15 min per IP (extension polls for the code).
+// OAuth relay polling: extension polls for the auth code.
 export const oauthRelayLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
+  windowMs: windowMs('RATE_LIMIT_OAUTH_RELAY_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_OAUTH_RELAY_MAX', 60),
   message: { error: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// General catch-all: 100 per 15 min per IP for any other routes.
+// General catch-all for any other routes.
 export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: windowMs('RATE_LIMIT_GENERAL_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_GENERAL_MAX', 100),
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// License activation: 5 attempts per hour per IP - prevents brute-forcing keys.
+// License activation: prevents brute-forcing keys.
 export const licenseLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
+  windowMs: windowMs('RATE_LIMIT_LICENSE_WINDOW_MIN', 60),
+  max: envInt('RATE_LIMIT_LICENSE_MAX', 5),
   message: { error: 'Too many activation attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
 });
 
-// Analytics: 60 events per 15 min per IP.
+// Analytics event ingestion.
 export const analyticsLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
+  windowMs: windowMs('RATE_LIMIT_ANALYTICS_WINDOW_MIN', 15),
+  max: envInt('RATE_LIMIT_ANALYTICS_MAX', 60),
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipInTest,
