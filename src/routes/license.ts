@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db, admin } from '../config/firebase';
 import { csrfProtection } from '../middleware/csrf';
 import { licenseLimiter } from '../middleware/rateLimiters';
-import { sanitizeEmail } from '../helpers/email';
+import { sanitizeEmail, getCurrentTimestamp } from '../helpers/email';
 import {
   createFreeLicense,
   hashKey,
@@ -163,6 +163,18 @@ router.post('/check-eligibility', licenseLimiter, csrfProtection, async (req: Re
   } catch (error) {
     logger.error('subscription.check_error', error);
     res.status(500).json({ eligible: false });
+  }
+});
+
+// Route: Health check for uptime monitoring — exercises Firestore
+// connectivity without mutating data or consuming a license key.
+router.get('/health', async (_req: Request, res: Response) => {
+  try {
+    await db.collection('license_keys').limit(1).get();
+    res.json({ status: 'ok', timestamp: getCurrentTimestamp() });
+  } catch (error) {
+    logger.error('subscription.health_error', error);
+    res.status(503).json({ status: 'unavailable', timestamp: getCurrentTimestamp() });
   }
 });
 
