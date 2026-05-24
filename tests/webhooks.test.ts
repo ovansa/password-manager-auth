@@ -84,6 +84,80 @@ describe('POST /api/webhooks/lemon-squeezy', () => {
     );
   });
 
+  test('renewal of an active subscription does not re-issue a key', async () => {
+    // First read (webhook_events) -> not processed; second read
+    // (subscriptions/{email}) -> already active with a license issued.
+    mockTransaction.get
+      .mockResolvedValueOnce(makeDoc(false))
+      .mockResolvedValueOnce(
+        makeDoc(true, { license_issued: true, status: 'active' }),
+      );
+
+    const { raw, signature } = signedPayload({
+      meta: {
+        event_name: 'subscription_payment_success',
+        custom_data: { email: 'buyer@example.com' },
+      },
+      data: {
+        type: 'subscriptions',
+        id: 'sub-789',
+        attributes: {
+          status: 'active',
+          variant_id: 'annual-variant',
+        },
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/webhooks/lemon-squeezy')
+      .set('Content-Type', 'application/json')
+      .set('X-Signature', signature)
+      .send(raw);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Expiry still refreshed (subscription doc written), but no new key emailed.
+    expect(mockTransaction.set).toHaveBeenCalled();
+    expect(mockSendLicenseKeyEmail).not.toHaveBeenCalled();
+  });
+
+  test('re-subscribing after a lapse issues a fresh key', async () => {
+    // First read (webhook_events) -> not processed; second read
+    // (subscriptions/{email}) -> previously issued but now expired.
+    mockTransaction.get
+      .mockResolvedValueOnce(makeDoc(false))
+      .mockResolvedValueOnce(
+        makeDoc(true, { license_issued: true, status: 'expired' }),
+      );
+
+    const { raw, signature } = signedPayload({
+      meta: {
+        event_name: 'subscription_created',
+        custom_data: { email: 'buyer@example.com' },
+      },
+      data: {
+        type: 'subscriptions',
+        id: 'sub-790',
+        attributes: {
+          status: 'active',
+          variant_id: 'annual-variant',
+        },
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/webhooks/lemon-squeezy')
+      .set('Content-Type', 'application/json')
+      .set('X-Signature', signature)
+      .send(raw);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(mockSendLicenseKeyEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'buyer@example.com', plan: 'annual' }),
+    );
+  });
+
   test('ignores unknown variants without failing Lemon retries', async () => {
     const { raw, signature } = signedPayload({
       meta: { event_name: 'order_created' },

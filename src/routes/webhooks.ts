@@ -207,9 +207,22 @@ router.post('/lemon-squeezy', async (req: Request, res: Response) => {
   try {
     const result = await db.runTransaction(async (tx) => {
       const eventRef = db.collection('webhook_events').doc(eventId);
+      const subscriptionRef = db.collection('subscriptions').doc(email);
+
+      // All reads must precede writes in a Firestore transaction.
       const eventDoc = await tx.get(eventRef);
       if (eventDoc.exists)
         return { alreadyProcessed: true, licenseKey: null as string | null };
+
+      // Decide whether this purchaser already holds a live license.
+      // A renewal of a still-active subscription reuses the existing key
+      // (only the expiry is extended). But if their previous subscription
+      // had lapsed (cancelled/expired), a re-subscribe issues a fresh key.
+      const subscriptionDoc = await tx.get(subscriptionRef);
+      const hasActiveLicense =
+        subscriptionDoc.exists &&
+        subscriptionDoc.data()?.['license_issued'] === true &&
+        subscriptionDoc.data()?.['status'] === 'active';
 
       const now = admin.firestore.FieldValue.serverTimestamp();
       const attrs = payload.data?.attributes ?? {};
@@ -249,7 +262,7 @@ router.post('/lemon-squeezy', async (req: Request, res: Response) => {
           : 'active';
 
       tx.set(
-        db.collection('subscriptions').doc(email),
+        subscriptionRef,
         {
           status: activeStatus,
           plan,
@@ -270,6 +283,12 @@ router.post('/lemon-squeezy', async (req: Request, res: Response) => {
         return { alreadyProcessed: false, licenseKey: null };
       }
 
+      // Renewal of a still-active subscription (or a duplicate event for the
+      // same purchase): expiry was refreshed above, so don't mint a new key.
+      if (hasActiveLicense) {
+        return { alreadyProcessed: false, licenseKey: null };
+      }
+
       const licenseKey = generateLicenseKey();
       const keyHash = hashKey(licenseKey);
       tx.set(db.collection('license_keys').doc(keyHash), {
@@ -285,6 +304,13 @@ router.post('/lemon-squeezy', async (req: Request, res: Response) => {
         source_event_id: eventId,
         purchaser_email: email,
       });
+
+      // Mark the purchaser so future events renew rather than re-issue.
+      tx.set(
+        subscriptionRef,
+        { license_issued: true, license_key_hash: keyHash },
+        { merge: true },
+      );
 
       return { alreadyProcessed: false, licenseKey };
     });
