@@ -21,6 +21,7 @@ import analyticsRouter from './routes/analytics';
 import configRouter from './routes/config';
 import webhooksRouter from './routes/webhooks';
 import waitlistRouter from './routes/waitlist';
+import siteReportRouter from './routes/siteReport';
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/license', licenseRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/config', configRouter);
 app.use('/api/waitlist', waitlistRouter);
+app.use('/api/site-report', siteReportRouter);
 
 // ── API docs (dev/staging only) ────────────────────────────────────────────
 // Swagger UI is mounted at /docs unless NODE_ENV is production. This keeps

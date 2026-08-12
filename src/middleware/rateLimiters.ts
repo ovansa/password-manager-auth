@@ -87,6 +87,16 @@ export const licenseLimiter = rateLimit({
   skip: skipInTest,
 });
 
+// Broken-site reports: unauthenticated, so keep the cap aggressive.
+export const siteReportLimiter = rateLimit({
+  windowMs: windowMs('RATE_LIMIT_SITE_REPORT_WINDOW_MIN', 60),
+  max: envInt('RATE_LIMIT_SITE_REPORT_MAX', 5),
+  message: { error: 'Too many reports. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+});
+
 // Analytics event ingestion.
 export const analyticsLimiter = rateLimit({
   windowMs: windowMs('RATE_LIMIT_ANALYTICS_WINDOW_MIN', 15),
